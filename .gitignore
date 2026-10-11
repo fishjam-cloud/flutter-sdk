@@ -7,3 +7,6 @@ coverage/
 .idea/
 *.iml
 .DS_Store
+
+# Local secrets
+.env*.local
