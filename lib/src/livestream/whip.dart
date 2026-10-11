@@ -1,8 +1,3 @@
-/// Publishing a livestream over WHIP (SPEC §19).
-///
-/// Owner: **Data & Stats** agent.
-library;
-
 import 'package:collection/collection.dart';
 import 'package:fishjam_client/src/livestream/livestream.dart';
 import 'package:fishjam_client/src/logger.dart';
@@ -15,10 +10,8 @@ abstract interface class WhipPublication {
   /// Sends `DELETE` to the resource and closes the peer connection.
   Future<void> stopPublishing();
 
-  /// Peer connection statistics.
   Future<List<RtcStats>> getStatistics();
 
-  /// Connection state changes.
   Stream<PeerConnectionState> get connectionState;
 }
 

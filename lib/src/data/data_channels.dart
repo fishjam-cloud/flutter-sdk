@@ -1,9 +1,3 @@
-/// Reliable and lossy data channels with `ChannelMessage` framing
-/// (SPEC §16).
-///
-/// Owner: **Data & Stats** agent.
-library;
-
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -16,17 +10,15 @@ import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 /// labels than [reliableLabel] and [lossyLabel].
 const reliableLabel = 'reliable';
 
-/// Label of the unordered, no-retransmission channel.
 const lossyLabel = 'lossy';
 
-/// Options of the reliable channel.
 const reliableInit = DataChannelInit();
 
-/// Options of the lossy channel.
+/// Unordered, no retransmissions.
 const lossyInit = DataChannelInit(ordered: false, maxRetransmits: 0);
 
 /// Encodes [data] as `ChannelMessage{source, destinations: ["*"],
-/// binary{data}}` (SPEC §16).
+/// binary{data}}`.
 Uint8List encodeChannelMessage(Uint8List data, {required String source}) =>
     ChannelMessage(
       source: source,
@@ -47,14 +39,15 @@ Uint8List? decodeChannelMessage(Uint8List message) {
   return Uint8List.fromList(decoded.binary.data);
 }
 
-/// Owns the two channels of a session.
+/// Owns the `reliable` and `lossy` data channels.
 ///
 /// The manager outlives sessions: [close] tears down the channels of the
 /// current session, but [dataStream] subscriptions stay valid and receive
-/// data from channels created later.
+/// data from channels created later. On teardown, call [close] before closing
+/// the engine, so a pending [createChannels] is cancelled silently.
 class DataChannelManager {
-  /// Creates a manager. `negotiate` runs a batchable negotiating command
-  /// that creates the channels on the peer connection (`RtcEngine.negotiate`).
+  /// `negotiate` runs a batchable negotiating command that creates the
+  /// channels on the peer connection (`RtcEngine.negotiate`).
   DataChannelManager({
     required this._logger,
     required this._negotiate,
@@ -81,12 +74,11 @@ class DataChannelManager {
   /// Completes when both channels of the in-flight attempt are open.
   Completer<void>? _ready;
 
-  /// Whether both channels are open.
   bool get isReady =>
       _reliable?.state == DataChannelState.open &&
       _lossy?.state == DataChannelState.open;
 
-  /// Creates both channels; completes when both are open (SPEC §16).
+  /// Creates both channels; completes when both are open.
   ///
   /// A no-op when both are open; concurrent calls share one attempt.
   Future<void> createChannels() {
@@ -117,8 +109,8 @@ class DataChannelManager {
         _finishAttempt();
         unawaited(_discardChannels());
         if (_isTeardown(error)) {
-          // The engine failed the command because the session ended
-          // (SPEC §8.3); like [close], this is a silent cancel.
+          // The engine failed the command because the session ended; like
+          // [close], this is a silent cancel.
           _logger.debug('Data channel creation cancelled by teardown');
         } else {
           _logger.error('Creating data channels failed', error, stackTrace);
@@ -228,7 +220,7 @@ class DataChannelManager {
       (reliable ? _reliableData : _lossyData).stream;
 
   /// Closes both channels and fails a pending [createChannels] with
-  /// `StateError('disconnected')` (SPEC §8.3). Emits nothing.
+  /// `StateError('disconnected')`. Emits nothing.
   Future<void> close() async {
     final ready = _ready;
     _finishAttempt();

@@ -1,9 +1,3 @@
-/// Remote endpoints and tracks (SPEC §14).
-///
-/// Owner: **Tracks** agent. The Engine forwards server media events here;
-/// this module owns all remote state and emits the remote events.
-library;
-
 import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/models/endpoint.dart';
 import 'package:fishjam_client/src/models/events.dart';
@@ -18,12 +12,12 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/shared.pbenum.dart
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:fishjam_client/src/wire.dart';
 
-/// Remote endpoints and tracks of a session.
+/// Remote endpoints and tracks of a session. The engine forwards server
+/// media events here; the store emits every remote event itself.
 ///
-/// Every method logs and ignores unknown endpoint or track ids (SPEC §7);
-/// events about the local endpoint are ignored without any state change.
+/// Every method logs and ignores unknown endpoint or track ids; events about
+/// the local endpoint are ignored without any state change.
 class RemoteStore {
-  /// Creates an empty store.
   RemoteStore({
     required this._logger,
     required this._emit,
@@ -39,7 +33,7 @@ class RemoteStore {
   String _localPeerId = '';
 
   /// Loads the snapshot from `connected`, skipping [localPeerId]. Emits
-  /// nothing (SPEC §14.1). Replaces any previous state.
+  /// nothing. Replaces any previous state.
   void loadConnected(
     server.MediaEvent_Connected connected,
     String localPeerId,
@@ -70,19 +64,16 @@ class RemoteStore {
     }
   }
 
-  /// Current peers.
   List<Peer> get peers => [
     for (final e in _endpoints.values)
       if (!e.isComponent) _peerOf(e),
   ];
 
-  /// Current components.
   List<Component> get components => [
     for (final e in _endpoints.values)
       if (e.isComponent) _componentOf(e),
   ];
 
-  /// Current remote tracks by id.
   Map<String, RemoteTrackContext> get tracks => Map.unmodifiable({
     for (final t in _tracks.values) t.trackId: t.toContext(),
   });
@@ -133,7 +124,7 @@ class RemoteStore {
   }
 
   /// `tracksAdded` from another endpoint: `TrackAdded` per new track; a known
-  /// id is updated in place (SPEC §14.2).
+  /// id is updated in place.
   void tracksAdded(server.MediaEvent_TracksAdded event) {
     final endpoint = _knownEndpoint(event.endpointId, 'tracksAdded');
     if (endpoint == null) return;
@@ -204,7 +195,7 @@ class RemoteStore {
         source: 'trackVariantDisabled',
       );
 
-  /// `vadNotification` → `VoiceActivityChanged` (SPEC §14.5).
+  /// `vadNotification` → `VoiceActivityChanged`.
   void vadNotification(server.MediaEvent_VadNotification event) {
     final track = _knownTrack(event.trackId, 'vadNotification');
     if (track == null) return;
@@ -223,7 +214,7 @@ class RemoteStore {
     _emit(VoiceActivityChanged(track.toContext()));
   }
 
-  /// Stores mids from an answer for remote tracks (SPEC §10.2). Ids of local
+  /// Stores mids from an answer for remote tracks. Ids of local
   /// tracks are ignored here.
   void applyAnswerMids(Map<String, String> midToTrackId) {
     for (final MapEntry(key: mid, value: trackId) in midToTrackId.entries) {
@@ -236,7 +227,7 @@ class RemoteStore {
     }
   }
 
-  /// Handles `onTrack` (SPEC §14.3): attaches the media to the remote track
+  /// Handles `onTrack`: attaches the media to the remote track
   /// with the transceiver's mid and emits `TrackReady`.
   void trackReady(RtcTrackEvent event) {
     final mid = event.mid;
@@ -254,7 +245,7 @@ class RemoteStore {
     _emit(TrackReady(track.toContext()));
   }
 
-  /// Validates and requests a variant (SPEC §14.4). Throws [ArgumentError]
+  /// Validates and requests a variant. Throws [ArgumentError]
   /// for an unknown track, a non-simulcast track or a variant that is not
   /// enabled; nothing is sent then.
   void setTargetEncoding(String trackId, Variant variant) {

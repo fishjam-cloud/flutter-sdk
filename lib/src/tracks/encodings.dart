@@ -1,15 +1,10 @@
-/// Send transceiver configuration for local tracks (SPEC §11.1, §12).
-///
-/// Owner: **Tracks** agent.
-library;
-
 import 'package:fishjam_client/src/models/simulcast.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:fishjam_client/src/tracks/bandwidth.dart';
 
 /// Builds the [TransceiverInit] for a local track: audio → `sendonly`, no
 /// encodings; video → one `{active, maxBitrate}` encoding; simulcast video →
-/// `l`/`m`/`h` encodings with scales 4/2/1 (SPEC §12). [maxBandwidth] is
+/// `l`/`m`/`h` encodings with scales 4/2/1. [maxBandwidth] is
 /// already resolved; a limit of the wrong shape is an [ArgumentError].
 TransceiverInit sendTransceiverInit({
   required MediaKind kind,
@@ -58,7 +53,7 @@ TransceiverInit sendTransceiverInit({
   );
 }
 
-/// Applies per-layer limits to encodings that have a rid (SPEC §13.6): the
+/// Applies per-layer limits to encodings that have a rid: the
 /// limit in bps, or no limit when it is 0 or missing. Other encodings are
 /// returned unchanged.
 List<RtpEncoding> applySimulcastLimits(

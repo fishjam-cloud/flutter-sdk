@@ -1,21 +1,15 @@
-/// Periodic `rtcStatsReport` (SPEC §17).
-///
-/// Owner: **Data & Stats** agent.
-library;
-
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 
-/// Interval between reports.
 const statsInterval = Duration(seconds: 10);
 
 const _reportedTypes = {'inbound-rtp', 'outbound-rtp'};
 
 /// Builds the report JSON: report id → fields, only `inbound-rtp` and
-/// `outbound-rtp` (SPEC §17).
+/// `outbound-rtp`.
 ///
 /// Every report carries its `id`, `type` and `timestamp` next to the
 /// platform's fields. Values JSON cannot represent (`NaN`, infinities) become
@@ -47,7 +41,6 @@ Object? _jsonSafe(Object? value) => switch (value) {
 /// Reports whose `getStats` is still in flight when [stop] is called are
 /// discarded, so nothing is sent after teardown.
 class StatsReporter {
-  /// Creates a stopped reporter.
   StatsReporter({
     required this._getStats,
     required this._send,
@@ -63,14 +56,13 @@ class StatsReporter {
   /// Incremented on every [stop]; ticks of an older run are discarded.
   int _run = 0;
 
-  /// Starts reporting (idempotent).
+  /// Idempotent.
   void start() {
     if (_timer != null) return;
     final run = _run;
     _timer = Timer.periodic(statsInterval, (_) => unawaited(_tick(run)));
   }
 
-  /// Stops reporting.
   void stop() {
     _timer?.cancel();
     _timer = null;

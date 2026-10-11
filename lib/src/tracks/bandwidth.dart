@@ -1,7 +1,5 @@
-/// Bandwidth resolution and splitting (SPEC §13). A direct port of the web
-/// SDK's rules; "kbps" means 1024 bps throughout.
-///
-/// Owner: **Tracks** agent.
+/// Bandwidth resolution and splitting, ported from the web SDK's rules.
+/// "kbps" means 1024 bps throughout.
 library;
 
 import 'package:fishjam_client/src/logger.dart';
@@ -13,39 +11,35 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/shared.pbenum.dart
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:fishjam_client/src/wire.dart';
 
-/// Bits per second in one kbps.
 const bpsPerKbps = 1024;
 
-/// Single-stream video cap in kbps (SPEC §13.1).
+/// Video bandwidth cap of a non-simulcast track, in kbps.
 const singleStreamCapKbps = 1500;
 
-/// Simulcast caps in kbps per layer (SPEC §13.1).
+/// Video bandwidth caps of a simulcast track, in kbps per layer.
 const Map<Variant, int> simulcastCapsKbps = {
   Variant.low: 150,
   Variant.medium: 500,
   Variant.high: 1500,
 };
 
-/// `scaleResolutionDownBy` per simulcast layer (SPEC §12).
 const Map<Variant, double> simulcastLayerScale = {
   Variant.low: 4.0,
   Variant.medium: 2.0,
   Variant.high: 1.0,
 };
 
-/// Bitrate reported for an audio track without a limit (SPEC §13.5).
+/// Bitrate reported to the server for an audio track without a limit.
 const defaultAudioBitrateBps = 50000;
 
-/// Bitrate reported for a video track without a limit (SPEC §13.5).
+/// Bitrate reported to the server for a video track without a limit.
 const int defaultVideoBitrateBps = singleStreamCapKbps * bpsPerKbps;
 
-/// `kbps * 1024`.
 int kbpsToBps(int kbps) => kbps * bpsPerKbps;
 
-/// `round(bps / 1024)`.
 int bpsToKbps(num bps) => (bps / bpsPerKbps).round();
 
-/// Resolves the limit of a video track (SPEC §13.2, §13.3). Throws
+/// Resolves the limit of a video track against the caps. Throws
 /// [ArgumentError] for a per-layer limit on a non-simulcast track.
 BandwidthLimit resolveVideoBandwidth(
   BandwidthLimit requested, {
@@ -82,7 +76,7 @@ BandwidthLimit resolveVideoBandwidth(
   });
 }
 
-/// Resolves the limit given to `setTrackBandwidth` (SPEC §13.4): audio limits
+/// Resolves the limit given to `setTrackBandwidth`: audio limits
 /// are applied as given (a map is an [ArgumentError]); video limits go
 /// through [resolveVideoBandwidth].
 BandwidthLimit resolveTrackBandwidth(
@@ -108,7 +102,6 @@ BandwidthLimit resolveTrackBandwidth(
   return requested;
 }
 
-/// Resolves one simulcast layer's limit against its cap (SPEC §13.3).
 int resolveVariantBandwidth(
   Variant variant,
   int kbps, {
@@ -116,8 +109,8 @@ int resolveVariantBandwidth(
 }) =>
     _resolveAgainstCap(kbps, simulcastCapsKbps[variant]!, variant.name, logger);
 
-/// Splits a total budget across the simulcast layers by pixel count
-/// (SPEC §13.3); result keys are ordered low, medium, high.
+/// Splits a total budget across the simulcast layers by pixel count; result
+/// keys are ordered low, medium, high.
 Map<Variant, int> _splitSimulcastBudget(int kbps) {
   final bps = _splitBps([
     for (final v in Variant.values) simulcastLayerScale[v],
@@ -129,7 +122,7 @@ Map<Variant, int> _splitSimulcastBudget(int kbps) {
 }
 
 /// Splits [kbps] across [encodings] proportionally to
-/// `(scale0 / scaleI)^2`; `0` removes every cap (SPEC §13.6).
+/// `(scale0 / scaleI)^2`; `0` removes every cap.
 List<RtpEncoding> splitBandwidth(
   List<RtpEncoding> encodings,
   int kbps, {
@@ -151,7 +144,7 @@ List<RtpEncoding> splitBandwidth(
   ];
 }
 
-/// The `variantBitrates` reported for a track (SPEC §13.5).
+/// The `variantBitrates` reported to the server for a track.
 List<peer.MediaEvent_VariantBitrate> variantBitrates(
   BandwidthLimit limit,
   MediaKind kind,

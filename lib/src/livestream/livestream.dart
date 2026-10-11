@@ -1,6 +1,5 @@
-/// Shared WHIP/WHEP plumbing (SPEC §19).
-///
-/// Owner: **Data & Stats** agent.
+/// Shared WHIP/WHEP plumbing: the offer/answer exchange over plain HTTP,
+/// independent of the room connection.
 library;
 
 import 'dart:async';
@@ -12,13 +11,12 @@ import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:http/http.dart' as http;
 
 /// How long to wait for ICE gathering before sending the offer with the
-/// candidates gathered so far (SPEC §19).
+/// candidates gathered so far.
 const defaultIceGatheringTimeout = Duration(seconds: 3);
 
-/// How long WHEP playback waits for the first remote stream (SPEC §19).
+/// How long WHEP playback waits for the first remote stream.
 const defaultFirstStreamTimeout = Duration(seconds: 10);
 
-/// Maps a failed POST status to a [LivestreamError] (SPEC §19).
 LivestreamError _livestreamErrorForStatus(
   int statusCode, {
   required bool publishing,
@@ -40,7 +38,6 @@ class LivestreamConnection {
     required this._logger,
   });
 
-  /// The negotiated peer connection.
   final RtcPeerConnection peerConnection;
 
   final http.Client _client;
@@ -52,10 +49,8 @@ class LivestreamConnection {
   Uri? _resource;
   Future<void>? _stopping;
 
-  /// Peer connection statistics.
   Future<List<RtcStats>> getStatistics() => peerConnection.getStats();
 
-  /// Connection state changes.
   Stream<PeerConnectionState> get connectionState =>
       peerConnection.onConnectionState;
 
@@ -97,10 +92,10 @@ class LivestreamConnection {
 }
 
 /// Creates a peer connection, lets [configure] add transceivers, and runs
-/// the offer/answer exchange with [url] (SPEC §19).
+/// the offer/answer exchange with [url].
 ///
 /// Every failure closes the connection and is thrown as a
-/// [LivestreamException]; HTTP errors are mapped by status (SPEC §19).
+/// [LivestreamException]; HTTP errors are mapped by status.
 Future<LivestreamConnection> connectLivestream({
   required RtcAdapter adapter,
   required Uri url,

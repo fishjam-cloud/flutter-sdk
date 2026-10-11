@@ -1,8 +1,3 @@
-/// Receiving a livestream over WHEP (SPEC §19).
-///
-/// Owner: **Data & Stats** agent.
-library;
-
 import 'dart:async';
 
 import 'package:fishjam_client/src/livestream/livestream.dart';
@@ -14,16 +9,13 @@ import 'package:http/http.dart' as http;
 /// A running WHEP playback (internal; the public type is
 /// `ReceiveLivestreamResult`).
 abstract interface class WhepPlayback {
-  /// The received stream.
   RtcMediaStream get stream;
 
   /// Sends `DELETE` to the resource and closes the peer connection.
   Future<void> stop();
 
-  /// Peer connection statistics.
   Future<List<RtcStats>> getStatistics();
 
-  /// Connection state changes.
   Stream<PeerConnectionState> get connectionState;
 }
 
