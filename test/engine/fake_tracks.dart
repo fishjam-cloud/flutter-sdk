@@ -97,6 +97,12 @@ class FakeLocalTrack implements LocalTrack {
   // The track and metadata are mutable behind accessors, as in LocalTrack.
   // ignore_for_file: prefer_initializing_formals
 
+  // Members the engine does not use (including ones the Tracks module adds
+  // later) are not faked.
+  @override
+  Never noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+
   @override
   final String trackId;
 
@@ -192,25 +198,16 @@ class FakeLocalTrack implements LocalTrack {
     if (old == null && newTrack != null) return ReplaceAction.unmute;
     return ReplaceAction.replace;
   }
-
-  @override
-  Future<void> setBandwidth(BandwidthLimit resolved) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> setEncodingBandwidth(Variant variant, int resolvedKbps) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> setEncodingActive(Variant variant, {required bool active}) =>
-      throw UnimplementedError();
-
-  @override
-  Future<double?> audioLevel() => throw UnimplementedError();
 }
 
 /// Registry of [LocalTrack]s with the SPEC §10.1 offer maps.
 class FakeLocalTrackRegistry implements LocalTrackRegistry {
+  // Members the engine does not use (including ones the Tracks module adds
+  // later) are not faked.
+  @override
+  Never noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+
   final _tracks = <LocalTrack>[];
   int _ids = 0;
 
@@ -339,6 +336,12 @@ class FakeRemoteStore implements RemoteStore {
   FakeRemoteStore({required this.emit, FishjamLogger? logger})
     : logger = logger ?? FishjamLogger.disabled();
 
+  // Members the engine does not use (including ones the Tracks module adds
+  // later) are not faked.
+  @override
+  Never noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+
   /// Emits client events.
   final void Function(FishjamEvent event) emit;
 
@@ -464,8 +467,4 @@ class FakeRemoteStore implements RemoteStore {
     _tracks[id!] = ready;
     emit(TrackReady(ready));
   }
-
-  @override
-  void setTargetEncoding(String trackId, Variant variant) =>
-      throw UnimplementedError();
 }
