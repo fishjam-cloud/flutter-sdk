@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (mise.toml)
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - name: Install dependencies
+        run: mise exec -- flutter pub get
+
+      - name: Check formatting
+        run: mise exec -- dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        run: mise exec -- flutter analyze --fatal-infos
+
+      - name: Test with coverage
+        run: mise exec -- flutter test --coverage
+
+      - name: Coverage gate (90 % of non-generated lib code)
+        run: tool/check_coverage.sh coverage/lcov.info 90
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+
+  protos-up-to-date:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: fishjam-cloud/protos
+          path: .protos
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - run: mise exec -- flutter pub get
+
+      - name: Regenerate bindings
+        run: mise exec -- tool/gen_protos.sh .protos
+
+      - name: Generated code is committed
+        # The README records the protos revision, which may legitimately differ.
+        run: git diff --exit-code -- lib/src/proto ':!lib/src/proto/README.md'

@@ -307,7 +307,7 @@ Streams (lip sync): tracks whose metadata type is `camera` or `microphone` share
 type `screenShareVideo` or `screenShareAudio` share another; any other track gets its own stream. Streams are
 created with `RtcAdapter.createLocalMediaStream` and passed in `TransceiverInit.streams`.
 
-Sender-only operations (§11.3–§11.5) are not queued commands: they act on the sender immediately and fail with
+Sender-only operations (§11.4, §11.5) are not queued commands: they act on the sender immediately and fail with
 `StateError` when the track has no sender yet (before its first negotiation).
 
 ### 11.2 Remove track
