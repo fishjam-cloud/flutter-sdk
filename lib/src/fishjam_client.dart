@@ -17,6 +17,8 @@ import 'package:fishjam_client/src/models/simulcast.dart';
 import 'package:fishjam_client/src/models/track.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:fishjam_client/src/signaling/transport.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' show MediaStreamTrack;
+import 'package:meta/meta.dart';
 
 /// Connects to a Fishjam room and exchanges media and data.
 ///
@@ -31,13 +33,16 @@ import 'package:fishjam_client/src/signaling/transport.dart';
 /// await client.connect(url: fishjamUrl, token: peerToken);
 /// ```
 class FishjamClient {
-  /// Creates a client. `rtcAdapter` and `transportFactory` default to the
-  /// `flutter_webrtc` adapter and `dart:io` WebSockets.
+  /// Creates a client. The adapter and transport factory exist for tests;
+  /// they default to the `flutter_webrtc` adapter and `dart:io` WebSockets.
+  ///
+  /// This facade converts between `flutter_webrtc` types and the internal
+  /// `RtcMediaTrack` seam (`wrapNativeTrack` / `nativeTrackOf`).
   FishjamClient({
     this.debug = false,
     this.reconnect = const ReconnectConfig(),
-    this._rtcAdapter,
-    this._transportFactory,
+    @visibleForTesting this._rtcAdapter,
+    @visibleForTesting this._transportFactory,
   });
 
   /// Whether SDK logs are emitted (SPEC §21).
@@ -72,7 +77,7 @@ class FishjamClient {
   /// Publishes [track] (SPEC §11.1); returns its track id. Throws
   /// `TrackTypeError` for video in an audio-only room.
   Future<String> addTrack(
-    RtcMediaTrack track, {
+    MediaStreamTrack track, {
     TrackMetadata? metadata,
     SimulcastConfig simulcastConfig = const SimulcastConfig.disabled(),
     BandwidthLimit maxBandwidth = BandwidthLimit.unlimited,
@@ -83,7 +88,7 @@ class FishjamClient {
       throw UnimplementedError('Integrator');
 
   /// Replaces, mutes (`null`) or unmutes a track's media (SPEC §11.3).
-  Future<void> replaceTrack(String trackId, RtcMediaTrack? track) =>
+  Future<void> replaceTrack(String trackId, MediaStreamTrack? track) =>
       throw UnimplementedError('Integrator');
 
   /// Sets a track's bandwidth limit in kbps (SPEC §11.5, §13).
@@ -132,7 +137,7 @@ class FishjamClient {
       throw UnimplementedError('Integrator');
 
   /// Peer connection statistics, optionally for one track.
-  Future<List<RtcStats>> getStatistics([RtcMediaTrack? track]) =>
+  Future<List<RtcStats>> getStatistics([MediaStreamTrack? track]) =>
       throw UnimplementedError('Integrator');
 
   /// Audio level (0.0–1.0) of a local audio track (SPEC §18).

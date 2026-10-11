@@ -13,6 +13,7 @@ import 'package:fishjam_client/src/engine/negotiation_state.dart';
 import 'package:fishjam_client/src/engine/rtc_engine.dart';
 import 'package:fishjam_client/src/fishjam_client.dart';
 import 'package:fishjam_client/src/livestream/livestream.dart';
+import 'package:fishjam_client/src/livestream_api.dart';
 import 'package:fishjam_client/src/livestream/whep.dart';
 import 'package:fishjam_client/src/livestream/whip.dart';
 import 'package:fishjam_client/src/logger.dart';
@@ -46,6 +47,7 @@ const _imported = {
   'src/engine/rtc_engine.dart',
   'src/fishjam_client.dart',
   'src/livestream/livestream.dart',
+  'src/livestream_api.dart',
   'src/livestream/whep.dart',
   'src/livestream/whip.dart',
   'src/logger.dart',

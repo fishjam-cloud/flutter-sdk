@@ -153,8 +153,8 @@ void main() {
       const local = LocalTrackContext(
         trackId: 'me:1',
         kind: MediaKind.audio,
-        track: null,
-        stream: null,
+        rtcTrack: null,
+        rtcStream: null,
         metadata: null,
         simulcastConfig: SimulcastConfig.disabled(),
         maxBandwidth: BandwidthLimit.unlimited,

@@ -27,8 +27,8 @@ void main() {
   final local = LocalTrackContext(
     trackId: 'me:1',
     kind: MediaKind.video,
-    track: FakeMediaTrack.video(),
-    stream: null,
+    rtcTrack: FakeMediaTrack.video(),
+    rtcStream: null,
     metadata: TrackMetadata(type: TrackType.camera),
     simulcastConfig: SimulcastConfig.disabled(),
     maxBandwidth: BandwidthLimit.simulcast({Variant.low: 1}),

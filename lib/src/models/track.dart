@@ -5,7 +5,10 @@
 library;
 
 import 'package:fishjam_client/src/models/simulcast.dart';
+import 'package:fishjam_client/src/rtc/flutter_webrtc_adapter.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart'
+    show MediaStream, MediaStreamTrack;
 import 'package:meta/meta.dart';
 
 /// What a track carries, as announced in its metadata.
@@ -152,8 +155,8 @@ final class LocalTrackContext extends TrackContext {
   const LocalTrackContext({
     required super.trackId,
     required this.kind,
-    required this.track,
-    required this.stream,
+    required this.rtcTrack,
+    required this.rtcStream,
     required this.metadata,
     required this.simulcastConfig,
     required this.maxBandwidth,
@@ -162,11 +165,19 @@ final class LocalTrackContext extends TrackContext {
   /// Audio or video.
   final MediaKind kind;
 
-  /// The media track being sent; `null` while muted.
-  final RtcMediaTrack? track;
+  /// The media track being sent (internal seam); `null` while muted.
+  @internal
+  final RtcMediaTrack? rtcTrack;
 
-  /// The stream the track is associated with.
-  final RtcMediaStream? stream;
+  /// The stream the track is associated with (internal seam).
+  @internal
+  final RtcMediaStream? rtcStream;
+
+  /// The media track being sent; `null` while muted.
+  MediaStreamTrack? get track => nativeTrackOf(rtcTrack);
+
+  /// The stream the track is associated with, e.g. for a local preview.
+  MediaStream? get stream => nativeStreamOf(rtcStream);
 
   /// The track's metadata.
   final TrackMetadata? metadata;
@@ -178,7 +189,7 @@ final class LocalTrackContext extends TrackContext {
   final BandwidthLimit maxBandwidth;
 
   /// Whether the track is muted (no media track is sent).
-  bool get isMuted => track == null;
+  bool get isMuted => rtcTrack == null;
 
   @override
   String toString() => 'LocalTrackContext($trackId, $kind)';
@@ -193,8 +204,8 @@ final class RemoteTrackContext extends TrackContext {
     required this.rawMetadata,
     required this.simulcastConfig,
     this.kind,
-    this.track,
-    this.stream,
+    this.rtcTrack,
+    this.rtcStream,
     this.vadStatus = VadStatus.silence,
     this.encoding,
     this.encodingReason,
@@ -206,11 +217,20 @@ final class RemoteTrackContext extends TrackContext {
   /// Audio or video; `null` until [track] is ready.
   final MediaKind? kind;
 
-  /// The remote media; `null` until `TrackReady`.
-  final RtcMediaTrack? track;
+  /// The remote media (internal seam); `null` until `TrackReady`.
+  @internal
+  final RtcMediaTrack? rtcTrack;
 
-  /// The stream the media belongs to; `null` until `TrackReady`.
-  final RtcMediaStream? stream;
+  /// The stream the media belongs to (internal seam).
+  @internal
+  final RtcMediaStream? rtcStream;
+
+  /// The remote media; `null` until `TrackReady`.
+  MediaStreamTrack? get track => nativeTrackOf(rtcTrack);
+
+  /// The stream to render (e.g. `RTCVideoRenderer.srcObject`); `null` until
+  /// `TrackReady`.
+  MediaStream? get stream => nativeStreamOf(rtcStream);
 
   /// Decoded metadata JSON as sent by the publisher.
   final Object? rawMetadata;
@@ -231,13 +251,13 @@ final class RemoteTrackContext extends TrackContext {
   final EncodingReason? encodingReason;
 
   /// Whether media has arrived.
-  bool get isReady => track != null;
+  bool get isReady => rtcTrack != null;
 
   /// Returns a copy with the given fields replaced.
   RemoteTrackContext copyWith({
     MediaKind? kind,
-    RtcMediaTrack? track,
-    RtcMediaStream? stream,
+    RtcMediaTrack? rtcTrack,
+    RtcMediaStream? rtcStream,
     Object? rawMetadata,
     SimulcastConfig? simulcastConfig,
     VadStatus? vadStatus,
@@ -246,8 +266,8 @@ final class RemoteTrackContext extends TrackContext {
     trackId: trackId,
     endpointId: endpointId,
     kind: kind ?? this.kind,
-    track: track ?? this.track,
-    stream: stream ?? this.stream,
+    rtcTrack: rtcTrack ?? this.rtcTrack,
+    rtcStream: rtcStream ?? this.rtcStream,
     rawMetadata: rawMetadata ?? this.rawMetadata,
     simulcastConfig: simulcastConfig ?? this.simulcastConfig,
     vadStatus: vadStatus ?? this.vadStatus,

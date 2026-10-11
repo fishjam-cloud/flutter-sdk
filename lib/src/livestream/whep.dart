@@ -6,8 +6,9 @@ library;
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:http/http.dart' as http;
 
-/// A running WHEP playback.
-abstract interface class ReceiveLivestreamResult {
+/// A running WHEP playback (internal; the public type is
+/// `ReceiveLivestreamResult`).
+abstract interface class WhepPlayback {
   /// The received stream.
   RtcMediaStream get stream;
 
@@ -25,7 +26,7 @@ abstract interface class ReceiveLivestreamResult {
 /// remote stream arrives. Throws `LivestreamException` on HTTP errors.
 ///
 /// Owner: Data & Stats.
-Future<ReceiveLivestreamResult> receiveLivestream({
+Future<WhepPlayback> receiveWhep({
   required RtcAdapter adapter,
   required Uri url,
   String? token,

@@ -94,6 +94,23 @@ final class FlutterWebrtcMediaStream implements RtcMediaStream {
       native.removeTrack(_unwrapTrack(track));
 }
 
+/// Wraps an app-provided `flutter_webrtc` track for the internal seam.
+RtcMediaTrack wrapNativeTrack(webrtc.MediaStreamTrack track) =>
+    FlutterWebrtcMediaTrack(track);
+
+/// Wraps a `flutter_webrtc` stream for the internal seam.
+RtcMediaStream wrapNativeStream(webrtc.MediaStream stream) =>
+    FlutterWebrtcMediaStream(stream);
+
+/// The `flutter_webrtc` track behind [track]; `null` when [track] is `null`
+/// or not backed by `flutter_webrtc` (e.g. a test fake).
+webrtc.MediaStreamTrack? nativeTrackOf(RtcMediaTrack? track) =>
+    track is FlutterWebrtcMediaTrack ? track.native : null;
+
+/// The `flutter_webrtc` stream behind [stream]; `null` otherwise.
+webrtc.MediaStream? nativeStreamOf(RtcMediaStream? stream) =>
+    stream is FlutterWebrtcMediaStream ? stream.native : null;
+
 webrtc.MediaStreamTrack _unwrapTrack(RtcMediaTrack track) {
   if (track is FlutterWebrtcMediaTrack) return track.native;
   throw ArgumentError.value(track, 'track', 'not a FlutterWebrtcMediaTrack');

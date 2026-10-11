@@ -5,10 +5,12 @@
 library;
 
 export 'src/fishjam_client.dart' show FishjamClient;
-export 'src/livestream/whep.dart'
-    show ReceiveLivestreamResult, receiveLivestream;
-export 'src/livestream/whip.dart'
-    show PublishLivestreamResult, publishLivestream;
+export 'src/livestream_api.dart'
+    show
+        PublishLivestreamResult,
+        ReceiveLivestreamResult,
+        publishLivestream,
+        receiveLivestream;
 export 'src/models/config.dart';
 export 'src/models/endpoint.dart' show Component, LocalPeer, Metadata, Peer;
 export 'src/models/errors.dart'
@@ -26,18 +28,7 @@ export 'src/models/errors.dart'
 export 'src/models/events.dart';
 export 'src/models/simulcast.dart';
 export 'src/models/track.dart';
-export 'src/rtc/flutter_webrtc_adapter.dart'
-    show
-        FlutterWebrtcAdapter,
-        FlutterWebrtcMediaStream,
-        FlutterWebrtcMediaTrack;
 export 'src/rtc/rtc_adapter.dart'
-    show
-        MediaKind,
-        PeerConnectionState,
-        RtcAdapter,
-        RtcMediaStream,
-        RtcMediaTrack,
-        RtcStats;
+    show MediaKind, PeerConnectionState, RtcAdapter, RtcStats;
 export 'src/tracks/bandwidth.dart' show simulcastCapsKbps, singleStreamCapKbps;
 export 'src/version.dart' show packageVersion;

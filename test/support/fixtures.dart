@@ -567,9 +567,9 @@ Map<String, Object?> describeEvent(FishjamEvent event) => {
     LocalTrackRemoved(:final trackId) ||
     LocalTrackMuted(:final trackId) ||
     LocalTrackUnmuted(:final trackId) => {'trackId': trackId},
-    LocalTrackReplaced(:final trackId, :final track) => {
+    LocalTrackReplaced(:final trackId, :final rtcTrack) => {
       'trackId': trackId,
-      'mediaTrackId': track?.id,
+      'mediaTrackId': rtcTrack?.id,
     },
     LocalTrackBandwidthSet(:final trackId, :final bandwidth) => {
       'trackId': trackId,

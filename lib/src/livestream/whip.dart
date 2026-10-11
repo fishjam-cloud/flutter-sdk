@@ -6,8 +6,9 @@ library;
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:http/http.dart' as http;
 
-/// A running WHIP publication.
-abstract interface class PublishLivestreamResult {
+/// A running WHIP publication (internal; the public type is
+/// `PublishLivestreamResult`).
+abstract interface class WhipPublication {
   /// Sends `DELETE` to the resource and closes the peer connection.
   Future<void> stopPublishing();
 
@@ -23,7 +24,7 @@ abstract interface class PublishLivestreamResult {
 /// HTTP errors.
 ///
 /// Owner: Data & Stats.
-Future<PublishLivestreamResult> publishLivestream({
+Future<WhipPublication> publishWhip({
   required RtcAdapter adapter,
   required RtcMediaStream stream,
   required Uri url,

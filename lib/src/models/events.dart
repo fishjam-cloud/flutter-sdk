@@ -11,7 +11,9 @@ import 'package:fishjam_client/src/models/endpoint.dart';
 import 'package:fishjam_client/src/models/errors.dart';
 import 'package:fishjam_client/src/models/simulcast.dart';
 import 'package:fishjam_client/src/models/track.dart';
+import 'package:fishjam_client/src/rtc/flutter_webrtc_adapter.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' show MediaStreamTrack;
 import 'package:meta/meta.dart';
 
 /// Base class of every client event.
@@ -277,13 +279,17 @@ final class LocalTrackRemoved extends FishjamEvent {
 /// A local track's media was replaced (SPEC §11.3).
 final class LocalTrackReplaced extends FishjamEvent {
   /// Creates the event.
-  const LocalTrackReplaced(this.trackId, this.track);
+  const LocalTrackReplaced(this.trackId, this.rtcTrack);
 
   /// Track id.
   final String trackId;
 
+  /// The new media track (internal seam), or `null` when muted.
+  @internal
+  final RtcMediaTrack? rtcTrack;
+
   /// The new media track, or `null` when muted.
-  final RtcMediaTrack? track;
+  MediaStreamTrack? get track => nativeTrackOf(rtcTrack);
 }
 
 /// A local track was muted by replacing its media with nothing (SPEC §11.3).
