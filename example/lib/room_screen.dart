@@ -122,8 +122,12 @@ class _RoomScreenState extends State<RoomScreen> {
     switch (event) {
       case TrackReady(:final track) when track.kind == MediaKind.video:
         unawaited(_addRemoteVideo(track));
+      case Joined():
+        // A (re)joined session's snapshot is the source of truth: drop every
+        // tile; ready tracks come back with TrackReady.
+        _clearRemoteVideos();
       case TrackRemoved(:final track):
-        _remote.remove(track.trackId)?.renderer.dispose();
+        unawaited(_remote.remove(track.trackId)?.renderer.dispose());
         setState(() {});
       case LocalTrackAdded(:final track):
         // After a reconnection the restored tracks get new ids.
@@ -147,20 +151,31 @@ class _RoomScreenState extends State<RoomScreen> {
     }
   }
 
+  void _clearRemoteVideos() {
+    for (final video in _remote.values) {
+      unawaited(video.renderer.dispose());
+    }
+    setState(_remote.clear);
+  }
+
   Future<void> _addRemoteVideo(RemoteTrackContext track) async {
     final renderer = RTCVideoRenderer();
     await renderer.initialize();
-    renderer.srcObject = track.stream;
+    // The track may have gone (or the screen closed) while initializing.
+    final current = _client.remoteTracks[track.trackId];
+    if (!mounted || current == null || !current.isReady) {
+      await renderer.dispose();
+      return;
+    }
+    renderer.srcObject = current.stream;
     final peer = _client.remotePeers[track.endpointId];
     final name = switch (peer?.metadata.peer) {
       {'name': final String name} => name,
       _ => track.endpointId,
     };
-    if (!mounted) {
-      await renderer.dispose();
-      return;
-    }
+    final previous = _remote[track.trackId];
     setState(() => _remote[track.trackId] = _RemoteVideo(renderer, name));
+    await previous?.renderer.dispose();
   }
 
   void _onChat(Uint8List data) {
@@ -186,6 +201,9 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 
   /// Muting replaces the sent media with nothing; unmuting puts it back.
+  /// `replaceTrack(id, null)` only stops sending: the camera keeps capturing
+  /// (and the local preview keeps running). Set `track.enabled = false` or
+  /// stop the track if the device should be released.
   Future<void> _toggleCamera() async {
     final on = !_cameraOn;
     setState(() => _cameraOn = on);

@@ -1,3 +1,4 @@
+import 'package:fishjam_client/fishjam_client.dart';
 import 'package:flutter/material.dart';
 
 import 'room_screen.dart';
@@ -38,7 +39,7 @@ class _JoinScreenState extends State<JoinScreen> {
     try {
       final credentials = switch (_mode) {
         _Mode.peerToken => RoomCredentials(
-          url: _fishjamUrl.text.trim(),
+          url: fishjamUrlFromId(_fishjamUrl.text.trim()),
           peerToken: _peerToken.text.trim(),
         ),
         _Mode.sandbox => await fetchSandboxCredentials(
@@ -95,8 +96,8 @@ class _JoinScreenState extends State<JoinScreen> {
             TextFormField(
               controller: _fishjamUrl,
               decoration: const InputDecoration(
-                labelText: 'Fishjam URL',
-                hintText: 'wss://…',
+                labelText: 'Fishjam ID or URL',
+                hintText: 'From the Fishjam dashboard',
               ),
               keyboardType: TextInputType.url,
               validator: _required,
