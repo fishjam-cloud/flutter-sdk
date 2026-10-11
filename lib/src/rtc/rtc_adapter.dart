@@ -55,7 +55,6 @@ final class TransceiverInit {
   /// Send encodings; empty means the platform default (one unlimited layer).
   final List<RtpEncoding> sendEncodings;
 
-  /// Streams the sent track is associated with.
   final List<RtcMediaStream> streams;
 }
 
@@ -76,7 +75,6 @@ final class RtcTrackEvent {
   final String? mid;
 }
 
-/// The sending half of a transceiver.
 abstract interface class RtcRtpSender {
   /// The media track being sent, or `null` (e.g. muted or removed).
   RtcMediaTrack? get track;
@@ -91,7 +89,6 @@ abstract interface class RtcRtpSender {
   Future<List<RtcStats>> getStats();
 }
 
-/// The receiving half of a transceiver.
 abstract interface class RtcRtpReceiver {
   MediaKind get kind;
 
@@ -102,7 +99,6 @@ abstract interface class RtcRtpTransceiver {
   /// Media id; `null` until a local description was applied.
   String? get mid;
 
-  /// Desired direction.
   Future<TransceiverDirection> getDirection();
 
   /// Negotiated direction; `null` before the first negotiation.
@@ -112,7 +108,6 @@ abstract interface class RtcRtpTransceiver {
 
   RtcRtpReceiver get receiver;
 
-  /// Stops the transceiver permanently.
   Future<void> stop();
 }
 
@@ -169,7 +164,6 @@ abstract interface class RtcPeerConnection {
 
   Future<List<RtcRtpSender>> getSenders();
 
-  /// Stops sending [sender]'s track.
   Future<void> removeTrack(RtcRtpSender sender);
 
   Future<SessionDescription> createOffer();

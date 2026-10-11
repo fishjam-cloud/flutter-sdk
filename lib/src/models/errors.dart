@@ -8,7 +8,6 @@ enum AuthErrorReason {
   /// The token is malformed or not signed for this server.
   invalidToken('invalid token'),
 
-  /// The token expired.
   expiredToken('expired token'),
 
   /// The room in the token does not exist.
@@ -134,13 +133,10 @@ final class ConnectionException extends FishjamException {
   ConnectionException({this.code, this.reason, this.cause})
     : super('Connection closed before joining (code: $code, reason: $reason)');
 
-  /// WebSocket close code, if any.
   final int? code;
 
-  /// Close reason, if any.
   final String? reason;
 
-  /// Underlying error, if any.
   final Object? cause;
 }
 
@@ -169,7 +165,6 @@ final class LivestreamException extends FishjamException {
   /// HTTP status code, if a response was received.
   final int? statusCode;
 
-  /// Underlying error, if any.
   final Object? cause;
 }
 

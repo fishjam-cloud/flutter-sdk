@@ -143,11 +143,9 @@ final class LocalTrackContext extends TrackContext {
 
   final MediaKind kind;
 
-  /// The media track being sent (internal seam); `null` while muted.
   @internal
   final RtcMediaTrack? rtcTrack;
 
-  /// The stream the track is associated with (internal seam).
   @internal
   final RtcMediaStream? rtcStream;
 
@@ -192,11 +190,9 @@ final class RemoteTrackContext extends TrackContext {
   /// Audio or video; `null` until [track] is ready.
   final MediaKind? kind;
 
-  /// The remote media (internal seam); `null` until `TrackReady`.
   @internal
   final RtcMediaTrack? rtcTrack;
 
-  /// The stream the media belongs to (internal seam).
   @internal
   final RtcMediaStream? rtcStream;
 

@@ -583,26 +583,25 @@ class _Host implements ReconnectHost {
 
   @override
   Future<void> startSession(Object? peerMetadata) async {
-    final client = _client;
-    final old = client._session;
+    final old = _client._session;
     // The new session becomes current first, so the old one is torn down
     // silently (no `Disconnected`) and its late reports are ignored.
-    final session = client._newSession()..isReconnectAttempt = true;
+    final session = _client._newSession()..isReconnectAttempt = true;
     if (old != null) {
       // Tracks a previous attempt restored were announced with
       // `LocalTrackAdded`; they go away with that session.
       if (old.isReconnectAttempt) {
         for (final track in old.localTracks.tracks) {
           if (track.negotiationStatus == TrackNegotiationStatus.negotiated) {
-            client._emit(LocalTrackRemoved(track.trackId));
+            _client._emit(LocalTrackRemoved(track.trackId));
           }
         }
       }
-      await client._teardown(old, sendDisconnect: false);
+      await _client._teardown(old, sendDisconnect: false);
     }
-    if (!identical(client._session, session)) return;
+    if (!identical(_client._session, session)) return;
     try {
-      await client._open(session, peerMetadata);
+      await _client._open(session, peerMetadata);
     } on Object {
       // Reported through `closed`.
     }

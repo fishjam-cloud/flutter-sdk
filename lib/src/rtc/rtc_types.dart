@@ -47,7 +47,6 @@ enum SdpType { offer, answer }
 final class IceServer {
   const IceServer({required this.urls, this.username, this.credential});
 
-  /// STUN/TURN URLs.
   final List<String> urls;
 
   final String? username;

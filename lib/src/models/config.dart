@@ -61,7 +61,6 @@ enum ConnectionStatus {
   /// Authenticated; waiting to join.
   authenticated,
 
-  /// In the room.
   joined,
 
   /// Re-establishing a lost connection.
