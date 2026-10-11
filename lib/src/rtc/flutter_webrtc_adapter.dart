@@ -1,9 +1,8 @@
 /// [RtcAdapter] implemented with `flutter_webrtc`.
 ///
-/// This is the **only** file that imports `flutter_webrtc`. It is a thin
-/// translation layer without logic of its own, verified by integration
-/// tests on devices rather than unit tests (excluded from the coverage
-/// gate). Owner: Architect.
+/// A thin translation layer without logic of its own, verified by
+/// integration tests on devices rather than unit tests (it is excluded from
+/// the coverage gate).
 library;
 
 import 'dart:async';
@@ -13,9 +12,7 @@ import 'dart:typed_data';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as webrtc;
 
-/// The default [RtcAdapter].
 final class FlutterWebrtcAdapter implements RtcAdapter {
-  /// Creates the adapter.
   const FlutterWebrtcAdapter();
 
   @override
@@ -43,9 +40,8 @@ final class FlutterWebrtcAdapter implements RtcAdapter {
       FlutterWebrtcMediaStream(await webrtc.createLocalMediaStream(label));
 }
 
-/// Wraps a `flutter_webrtc` media track for use with the SDK.
 final class FlutterWebrtcMediaTrack implements RtcMediaTrack {
-  /// Wraps [native]. Chains (does not replace) an existing `onEnded`.
+  /// Chains (does not replace) an existing `onEnded` of [native].
   FlutterWebrtcMediaTrack(this.native) {
     final previous = native.onEnded;
     native.onEnded = () {
@@ -54,7 +50,6 @@ final class FlutterWebrtcMediaTrack implements RtcMediaTrack {
     };
   }
 
-  /// The wrapped track (e.g. to render it).
   final webrtc.MediaStreamTrack native;
 
   bool _ended = false;
@@ -70,12 +65,9 @@ final class FlutterWebrtcMediaTrack implements RtcMediaTrack {
   bool get isLive => !_ended;
 }
 
-/// Wraps a `flutter_webrtc` media stream for use with the SDK.
 final class FlutterWebrtcMediaStream implements RtcMediaStream {
-  /// Wraps [native].
   FlutterWebrtcMediaStream(this.native);
 
-  /// The wrapped stream (e.g. `RTCVideoRenderer.srcObject`).
   final webrtc.MediaStream native;
 
   @override
@@ -97,11 +89,9 @@ final class FlutterWebrtcMediaStream implements RtcMediaStream {
   Future<void> dispose() => native.dispose();
 }
 
-/// Wraps an app-provided `flutter_webrtc` track for the internal seam.
 RtcMediaTrack wrapNativeTrack(webrtc.MediaStreamTrack track) =>
     FlutterWebrtcMediaTrack(track);
 
-/// Wraps a `flutter_webrtc` stream for the internal seam.
 RtcMediaStream wrapNativeStream(webrtc.MediaStream stream) =>
     FlutterWebrtcMediaStream(stream);
 
@@ -110,7 +100,7 @@ RtcMediaStream wrapNativeStream(webrtc.MediaStream stream) =>
 webrtc.MediaStreamTrack? nativeTrackOf(RtcMediaTrack? track) =>
     track is FlutterWebrtcMediaTrack ? track.native : null;
 
-/// The `flutter_webrtc` stream behind [stream]; `null` otherwise.
+/// Like [nativeTrackOf], for streams.
 webrtc.MediaStream? nativeStreamOf(RtcMediaStream? stream) =>
     stream is FlutterWebrtcMediaStream ? stream.native : null;
 
@@ -310,7 +300,7 @@ final class _PeerConnection implements RtcPeerConnection {
 
 /// Constraints for `createOffer`. Without them `flutter_webrtc` sends
 /// `OfferToReceiveAudio/Video: true`, and the platform adds receive
-/// transceivers the server did not ask for (SPEC §9).
+/// transceivers the server did not ask for.
 const nativeOfferConstraints = <String, dynamic>{
   'mandatory': <String, dynamic>{},
   'optional': <dynamic>[],
@@ -319,9 +309,9 @@ const nativeOfferConstraints = <String, dynamic>{
 /// The options map sent to the platform for [init].
 ///
 /// Works around two `flutter_webrtc` defaults: it drops `maxRetransmits: 0`
-/// (the lossy channel needs it, SPEC §16), and it always sends `id: 0`,
-/// which the platform applies to every channel, so the reliable and lossy
-/// channels would collide on SCTP stream 0. Without `id` the stack picks one.
+/// (the lossy channel needs it), and it always sends `id: 0`, which the
+/// platform applies to every channel, so the reliable and lossy channels
+/// would collide on SCTP stream 0. Without `id` the stack picks one.
 Map<String, dynamic> nativeDataChannelInit(DataChannelInit init) => {
   ...(webrtc.RTCDataChannelInit()..ordered = init.ordered).toMap(),
   if (init.maxRetransmits != null) 'maxRetransmits': init.maxRetransmits,

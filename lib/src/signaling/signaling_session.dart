@@ -1,8 +1,3 @@
-/// One authenticated socket session (SPEC §2, §3.2, §4, §5).
-///
-/// Owner: **Signaling** agent.
-library;
-
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -20,10 +15,8 @@ import 'package:fishjam_client/src/signaling/transport.dart';
 /// Thrown by [SignalingSession.open] when the socket closes before
 /// `authenticated` arrives.
 final class SignalingClosedException implements Exception {
-  /// Creates the exception.
   const SignalingClosedException(this.reason);
 
-  /// Classified close reason.
   final CloseReason reason;
 
   @override
@@ -33,11 +26,10 @@ final class SignalingClosedException implements Exception {
 /// One socket session: opens the transport, authenticates, then exchanges
 /// media events. Single use; a reconnection creates a new session.
 ///
-/// Outgoing messages that do not bypass the queue (SPEC §5) go through the
+/// Outgoing messages that do not bypass the queue go through the
 /// shared [MessageQueue], which outlives sessions; the owner of the queue
 /// routes its writes to the current session's transport via [sendNow].
 class SignalingSession {
-  /// Creates a session over `transport`.
   SignalingSession({
     required this._transport,
     required this._queue,
@@ -66,7 +58,7 @@ class SignalingSession {
 
   /// Opens the socket at the peer socket URL for [url], sends `authRequest`
   /// with [token] and completes with the `authenticated` message, after
-  /// logging its SDK deprecation status (SPEC §3.2).
+  /// logging its SDK deprecation status.
   ///
   /// Throws [SignalingClosedException] when the socket closes first (also
   /// after [close]), and [TransportException] when it cannot be opened.
@@ -127,11 +119,10 @@ class SignalingSession {
   Future<CloseReason> get closed => _closed.future;
 
   /// Sends a peer media event: immediately when it bypasses the queue,
-  /// through the queue otherwise (SPEC §5).
+  /// through the queue otherwise.
   void sendMediaEvent(peer.MediaEvent event) =>
       _send(PeerMessage(peerMediaEvent: event));
 
-  /// Sends `rtcStatsReport{data: json}` through the queue (SPEC §17).
   void sendStatsReport(String json) => _send(
     PeerMessage(rtcStatsReport: PeerMessage_RTCStatsReport(data: json)),
   );

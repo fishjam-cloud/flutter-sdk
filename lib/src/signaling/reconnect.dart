@@ -1,8 +1,3 @@
-/// The reconnection state machine (SPEC §6).
-///
-/// Owner: **Signaling** agent.
-library;
-
 import 'dart:async';
 
 import 'package:fishjam_client/src/models/config.dart';
@@ -10,9 +5,7 @@ import 'package:fishjam_client/src/models/errors.dart';
 import 'package:fishjam_client/src/models/events.dart';
 import 'package:fishjam_client/src/models/track.dart';
 
-/// States of [ReconnectManager].
 enum ReconnectState {
-  /// Not reconnecting.
   idle,
 
   /// Attempts are scheduled or running.
@@ -24,7 +17,6 @@ enum ReconnectState {
 
 /// What the client looked like when the connection was lost.
 final class ReconnectSnapshot {
-  /// Creates a snapshot.
   const ReconnectSnapshot({required this.peerMetadata, required this.tracks});
 
   /// The `peer` part of the local peer's metadata.
@@ -51,21 +43,17 @@ abstract interface class ReconnectHost {
   /// Publishes [track]'s media again; the new track gets a new id.
   Future<void> restoreTrack(LocalTrackContext track);
 
-  /// Holds outgoing queued messages.
   void holdQueue();
 
-  /// Flushes outgoing queued messages.
   void releaseQueue();
 
-  /// Drops outgoing queued messages.
   void clearQueue();
 
-  /// Emits a client event.
   void emit(FishjamEvent event);
 }
 
-/// Decides when to reconnect, schedules attempts and restores tracks
-/// (SPEC §6). Uses `dart:async` timers (tests drive it with fake time).
+/// Decides when to reconnect, schedules attempts and restores tracks. Uses
+/// `dart:async` timers (tests drive it with fake time).
 ///
 /// Division of work with the caller (the client facade):
 /// - The caller reports every loss of the current session — including a new
@@ -74,7 +62,7 @@ abstract interface class ReconnectHost {
 /// - The manager emits only `ReconnectionStarted`, `ReconnectionFailed`,
 ///   `Reconnected` and, on the first `connected` of a reconnection,
 ///   `LocalTrackRemoved` for every snapshotted track (restored tracks get
-///   new ids). It never emits `Disconnected` (D9): when
+///   new ids). It never emits `Disconnected`: when
 ///   [onRetryableLoss] returns `false` the caller ends the session with
 ///   `Disconnected(reconnectionFailed)` if [state] is
 ///   [ReconnectState.failed], else `Disconnected(connectionLost)`; after a
@@ -82,10 +70,9 @@ abstract interface class ReconnectHost {
 ///   The one exception is [ReconnectHost.startSession] throwing on the last
 ///   attempt, where the manager calls [ReconnectHost.endSession].
 /// - With `addTracksOnReconnect`, only tracks with a live media track are
-///   re-added (SPEC §6). Muted tracks (no media track) and ended tracks are
+///   re-added. Muted tracks (no media track) and ended tracks are
 ///   not; a failed re-add does not stop the others.
 class ReconnectManager {
-  /// Creates a manager.
   ReconnectManager({required this._config, required this._host});
 
   final ReconnectConfig _config;
@@ -106,10 +93,8 @@ class ReconnectManager {
   /// restoration of an outdated session does not complete the reconnection.
   int _generation = 0;
 
-  /// Current state.
   ReconnectState get state => _state;
 
-  /// Whether attempts are scheduled or running.
   bool get isReconnecting => _state == ReconnectState.reconnecting;
 
   /// A retryable loss happened while joined or reconnecting. Returns `false`
@@ -160,7 +145,7 @@ class ReconnectManager {
   /// restores tracks, releases the queue and emits `Reconnected`.
   ///
   /// Only live tracks are restored; ended or muted ones are skipped and a
-  /// failed restore does not stop the others (D2). If the session is lost
+  /// failed restore does not stop the others. If the session is lost
   /// while restoring, `Reconnected` is not emitted for it.
   Future<void> onSessionJoined() async {
     if (_state != ReconnectState.reconnecting) return;

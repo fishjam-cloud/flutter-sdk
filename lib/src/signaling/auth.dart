@@ -1,7 +1,5 @@
-/// Socket URL, close-reason normalization and classification (SPEC §2.1,
-/// §4), and the mapping of a terminal close to events and errors (SPEC §3.2).
-///
-/// Owner: **Signaling** agent.
+/// Socket URL, close-reason classification, and the mapping of a terminal
+/// close to events and errors.
 library;
 
 import 'package:fishjam_client/src/models/config.dart';
@@ -9,10 +7,9 @@ import 'package:fishjam_client/src/models/errors.dart';
 import 'package:fishjam_client/src/models/events.dart';
 import 'package:fishjam_client/src/signaling/transport.dart';
 
-/// Path of the peer socket, appended to the Fishjam URL.
 const peerSocketPath = 'socket/peer/websocket';
 
-/// Builds the socket URL from the Fishjam [url] (SPEC §2.1): appends
+/// Builds the socket URL from the Fishjam [url]: appends
 /// [peerSocketPath] to its path (a trailing `/` is not duplicated, a query
 /// string is kept); an `http` / `https` URL becomes `ws` / `wss`. Throws
 /// [ArgumentError] for any other scheme or a relative URL.
@@ -49,11 +46,9 @@ String fishjamUrlFromId(String fishjamId) {
   return 'https://fishjam.io/api/v1/connect/$fishjamId';
 }
 
-/// `reason.trim().toLowerCase()` (SPEC §4).
 String normalizeCloseReason(String reason) => reason.trim().toLowerCase();
 
-/// Classifies a transport close (SPEC §4). A close without a close frame is
-/// always [RetryableClose].
+/// A close without a close frame is always [RetryableClose].
 CloseReason classifyClose(TransportClosed closed) {
   final code = closed.code;
   final reason = closed.reason;
@@ -81,8 +76,7 @@ CloseReason classifyClose(TransportClosed closed) {
   return RetryableClose(code: code, reason: reason, error: closed.error);
 }
 
-/// The [DisconnectReason] of a session that ended with [close] (SPEC §4). A
-/// retryable close maps to [DisconnectReason.connectionLost]; after giving up
+/// A retryable close maps to [DisconnectReason.connectionLost]; after giving up
 /// on reconnection the caller uses [DisconnectReason.reconnectionFailed].
 DisconnectReason disconnectReasonFor(CloseReason close) => switch (close) {
   AuthClose() => DisconnectReason.authError,
@@ -94,8 +88,6 @@ DisconnectReason disconnectReasonFor(CloseReason close) => switch (close) {
   RetryableClose() => DisconnectReason.connectionLost,
 };
 
-/// The [Disconnected] event for a session that ended with [close], carrying
-/// its close code and raw reason.
 Disconnected disconnectedFor(CloseReason close) => Disconnected(
   disconnectReasonFor(close),
   closeCode: close.code,
@@ -103,7 +95,7 @@ Disconnected disconnectedFor(CloseReason close) => Disconnected(
 );
 
 /// The error event emitted before [Disconnected] for [close]: [AuthFailed]
-/// or [JoinFailed]; `null` for every other class (SPEC §4).
+/// or [JoinFailed]; `null` for every other class.
 FishjamEvent? errorEventFor(CloseReason close) => switch (close) {
   AuthClose(:final authError) => AuthFailed(authError),
   JoinClose(:final joinError) => JoinFailed(joinError),
@@ -111,7 +103,7 @@ FishjamEvent? errorEventFor(CloseReason close) => switch (close) {
 };
 
 /// The error `connect()` completes with when the session ends with [close]
-/// before `Joined` (SPEC §3.2).
+/// before `Joined`.
 FishjamException connectExceptionFor(CloseReason close) => switch (close) {
   AuthClose(:final authError) => AuthException(authError),
   JoinClose(:final joinError) => JoinException(joinError),

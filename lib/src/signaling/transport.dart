@@ -1,8 +1,5 @@
-/// The seam between signaling and the socket (SPEC §2.1).
-///
-/// Owner: Architect (interface and [WebSocketTransport]). The Signaling
-/// module only depends on [SignalingTransport]; tests use
-/// `test/fakes/fake_transport.dart`.
+/// The seam between signaling and the socket. Signaling depends only on
+/// [SignalingTransport]; tests use `test/fakes/fake_transport.dart`.
 library;
 
 import 'dart:async';
@@ -12,17 +9,14 @@ import 'dart:typed_data';
 import 'package:fishjam_client/src/logger.dart';
 import 'package:meta/meta.dart';
 
-/// Why a transport closed.
 @immutable
 final class TransportClosed {
-  /// Creates a close description.
   const TransportClosed({this.code, this.reason, this.error});
 
   /// WebSocket close code, or `null` when the connection was lost without a
   /// close frame (network loss, pong timeout).
   final int? code;
 
-  /// Close reason sent by the server, or `null`.
   final String? reason;
 
   /// The error that ended the connection, when it did not end with a close
@@ -36,13 +30,10 @@ final class TransportClosed {
 
 /// Thrown by [SignalingTransport.connect] when the socket cannot be opened.
 final class TransportException implements Exception {
-  /// Creates a transport exception.
   const TransportException(this.message, [this.cause]);
 
-  /// What went wrong.
   final String message;
 
-  /// The underlying error, if any.
   final Object? cause;
 
   @override
@@ -57,10 +48,9 @@ final class TransportException implements Exception {
 /// [onClose] event, after which [incoming] is done. A new session needs a new
 /// transport (see [SignalingTransportFactory]).
 abstract interface class SignalingTransport {
-  /// Opens the connection. Throws [TransportException] on failure.
+  /// Throws [TransportException] when the socket cannot be opened.
   Future<void> connect(Uri url);
 
-  /// Whether the connection is open.
   bool get isOpen;
 
   /// Sends one binary frame. A no-op when the transport is not open.
@@ -73,7 +63,6 @@ abstract interface class SignalingTransport {
   /// network loss, liveness timeout or [close]).
   Future<TransportClosed> get onClose;
 
-  /// Closes the connection with [code] and an optional [reason].
   Future<void> close([int code = 1000, String? reason]);
 }
 
@@ -84,10 +73,9 @@ typedef SignalingTransportFactory = SignalingTransport Function();
 ///
 /// Sends a ping every [pingInterval]; when no pong arrives within the next
 /// interval the socket is closed and [onClose] reports a closure without a
-/// code (SPEC §2.1).
+/// code.
 final class WebSocketTransport implements SignalingTransport {
-  /// Creates a transport; the socket is opened by [connect]. Ignored text
-  /// frames are logged at debug level with [logger].
+  /// Ignored text frames are logged at debug level with [logger].
   WebSocketTransport({
     this.pingInterval = const Duration(seconds: 15),
     FishjamLogger? logger,

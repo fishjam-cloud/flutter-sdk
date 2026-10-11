@@ -1,11 +1,8 @@
 /// The seam between the SDK and the WebRTC implementation.
 ///
-/// Everything in the SDK talks to WebRTC through these types only. The real
-/// implementation lives in `flutter_webrtc_adapter.dart` (the only file that
-/// imports `flutter_webrtc`); tests use `test/fakes/fake_rtc.dart`.
-///
-/// The surface is deliberately limited to what the SDK needs (SPEC §8–§19).
-/// Owner: Architect. Changes need agreement of every module that uses it.
+/// The SDK talks to WebRTC only through these types, limited to what it
+/// needs. The real implementation is `flutter_webrtc_adapter.dart`; tests
+/// use `test/fakes/fake_rtc.dart`.
 library;
 
 import 'dart:async';
@@ -14,143 +11,52 @@ import 'dart:typed_data';
 import 'package:meta/meta.dart';
 
 /// Kind of a media track or transceiver.
-enum MediaKind {
-  /// Audio.
-  audio,
+enum MediaKind { audio, video }
 
-  /// Video.
-  video,
-}
+enum TransceiverDirection { sendrecv, sendonly, recvonly, inactive, stopped }
 
-/// Direction of an RTP transceiver.
-enum TransceiverDirection {
-  /// Send and receive.
-  sendrecv,
-
-  /// Send only.
-  sendonly,
-
-  /// Receive only.
-  recvonly,
-
-  /// Neither send nor receive.
-  inactive,
-
-  /// The transceiver was stopped.
-  stopped,
-}
-
-/// State of a peer connection.
+/// State of a peer connection (`RTCPeerConnectionState`).
 enum PeerConnectionState {
-  /// Just created.
   newState,
-
-  /// Connecting.
   connecting,
-
-  /// Connected.
   connected,
-
-  /// Temporarily disconnected.
   disconnected,
-
-  /// Failed.
   failed,
-
-  /// Closed.
   closed,
 }
 
-/// ICE connection state of a peer connection.
 enum IceConnectionState {
-  /// Just created.
   newState,
-
-  /// Checking candidate pairs.
   checking,
-
-  /// Connected.
   connected,
-
-  /// Completed.
   completed,
-
-  /// Failed.
   failed,
-
-  /// Temporarily disconnected.
   disconnected,
-
-  /// Closed.
   closed,
 }
 
-/// ICE gathering state of a peer connection.
-enum IceGatheringState {
-  /// Not started.
-  newState,
+enum IceGatheringState { newState, gathering, complete }
 
-  /// Gathering candidates.
-  gathering,
-
-  /// Done gathering.
-  complete,
-}
-
-/// Signaling state of a peer connection.
 enum SignalingState {
-  /// No offer/answer exchange in progress.
   stable,
-
-  /// A local offer was applied.
   haveLocalOffer,
-
-  /// A remote offer was applied.
   haveRemoteOffer,
-
-  /// A local provisional answer was applied.
   haveLocalPranswer,
-
-  /// A remote provisional answer was applied.
   haveRemotePranswer,
-
-  /// The connection is closed.
   closed,
 }
 
-/// State of a data channel.
-enum DataChannelState {
-  /// Opening.
-  connecting,
+enum DataChannelState { connecting, open, closing, closed }
 
-  /// Open; messages can be sent.
-  open,
-
-  /// Closing.
-  closing,
-
-  /// Closed.
-  closed,
-}
-
-/// Type of a session description.
-enum SdpType {
-  /// An offer.
-  offer,
-
-  /// An answer.
-  answer,
-}
+enum SdpType { offer, answer }
 
 /// A media track (local or remote).
 ///
 /// Local tracks are created by the app (e.g. from the camera) and wrapped by
 /// the adapter; remote tracks are produced by [RtcPeerConnection.onTrack].
 abstract interface class RtcMediaTrack {
-  /// Unique id of the media track.
   String get id;
 
-  /// Audio or video.
   MediaKind get kind;
 
   /// Whether the track still produces media (it has not ended).
@@ -159,16 +65,12 @@ abstract interface class RtcMediaTrack {
 
 /// A group of media tracks (used to associate audio and video for sync).
 abstract interface class RtcMediaStream {
-  /// Unique id of the stream.
   String get id;
 
-  /// Tracks currently in the stream.
   List<RtcMediaTrack> get tracks;
 
-  /// Adds [track] to the stream.
   Future<void> addTrack(RtcMediaTrack track);
 
-  /// Removes [track] from the stream.
   Future<void> removeTrack(RtcMediaTrack track);
 
   /// Releases the stream. Platforms may also release tracks still in it, so
@@ -176,19 +78,15 @@ abstract interface class RtcMediaStream {
   Future<void> dispose();
 }
 
-/// An ICE server used by a peer connection.
 @immutable
 final class IceServer {
-  /// Creates an ICE server entry.
   const IceServer({required this.urls, this.username, this.credential});
 
   /// STUN/TURN URLs.
   final List<String> urls;
 
-  /// TURN username, if any.
   final String? username;
 
-  /// TURN credential, if any.
   final String? credential;
 
   @override
@@ -208,26 +106,20 @@ final class IceServer {
 /// Configuration of a new peer connection.
 ///
 /// The SDK always uses bundle policy `max-bundle` and ICE transport policy
-/// `all` (SPEC §8.4); adapters must apply them.
+/// `all`; adapters must apply them.
 @immutable
 final class RtcConfiguration {
-  /// Creates a configuration.
   const RtcConfiguration({this.iceServers = const []});
 
-  /// ICE servers to use.
   final List<IceServer> iceServers;
 }
 
-/// An SDP offer or answer.
 @immutable
 final class SessionDescription {
-  /// Creates a session description.
   const SessionDescription({required this.type, required this.sdp});
 
-  /// Offer or answer.
   final SdpType type;
 
-  /// The SDP text.
   final String sdp;
 
   @override
@@ -241,10 +133,8 @@ final class SessionDescription {
   String toString() => 'SessionDescription($type, ${sdp.length} chars)';
 }
 
-/// An ICE candidate (local or remote).
 @immutable
 final class IceCandidate {
-  /// Creates an ICE candidate.
   const IceCandidate({
     required this.candidate,
     this.sdpMLineIndex,
@@ -252,16 +142,12 @@ final class IceCandidate {
     this.usernameFragment,
   });
 
-  /// The candidate line.
   final String candidate;
 
-  /// Index of the m-line the candidate belongs to.
   final int? sdpMLineIndex;
 
-  /// Mid of the m-line the candidate belongs to.
   final String? sdpMid;
 
-  /// ICE username fragment.
   final String? usernameFragment;
 
   @override
@@ -283,7 +169,6 @@ final class IceCandidate {
 /// One RTP encoding of a sender (one simulcast layer, or the only layer).
 @immutable
 final class RtpEncoding {
-  /// Creates an encoding description.
   const RtpEncoding({
     this.rid,
     this.active = true,
@@ -294,7 +179,6 @@ final class RtpEncoding {
   /// Simulcast layer id (`l`, `m`, `h`), or `null` for a single layer.
   final String? rid;
 
-  /// Whether the layer is sent.
   final bool active;
 
   /// Bitrate cap in bits per second; `null` means unlimited.
@@ -303,8 +187,6 @@ final class RtpEncoding {
   /// Resolution scale factor; `null` means 1.
   final double? scaleResolutionDownBy;
 
-  /// Returns a copy with the given fields replaced.
-  ///
   /// Use [clearMaxBitrate] to remove the bitrate cap.
   RtpEncoding copyWith({
     String? rid,
@@ -341,13 +223,10 @@ final class RtpEncoding {
 /// expose here when [RtcRtpSender.setParameters] is called.
 @immutable
 final class RtpSendParameters {
-  /// Creates send parameters.
   const RtpSendParameters({required this.encodings});
 
-  /// The sender's encodings.
   final List<RtpEncoding> encodings;
 
-  /// Returns a copy with [encodings] replaced.
   RtpSendParameters copyWith({List<RtpEncoding>? encodings}) =>
       RtpSendParameters(encodings: encodings ?? this.encodings);
 }
@@ -355,14 +234,12 @@ final class RtpSendParameters {
 /// Options for `RtcPeerConnection.addTransceiver`.
 @immutable
 final class TransceiverInit {
-  /// Creates transceiver options.
   const TransceiverInit({
     required this.direction,
     this.sendEncodings = const [],
     this.streams = const [],
   });
 
-  /// Initial direction.
   final TransceiverDirection direction;
 
   /// Send encodings; empty means the platform default (one unlimited layer).
@@ -375,14 +252,12 @@ final class TransceiverInit {
 /// Options for [RtcPeerConnection.createDataChannel].
 @immutable
 final class DataChannelInit {
-  /// Creates data channel options.
   const DataChannelInit({this.ordered = true, this.maxRetransmits});
 
-  /// Whether messages are delivered in order.
   final bool ordered;
 
   /// Maximum retransmissions; `null` means reliable. `0` must be honored
-  /// (the lossy channel relies on it, SPEC §16).
+  /// (the lossy channel relies on it).
   final int? maxRetransmits;
 
   @override
@@ -402,7 +277,6 @@ final class DataChannelInit {
 /// One WebRTC statistics report.
 @immutable
 final class RtcStats {
-  /// Creates a stats report.
   const RtcStats({
     required this.id,
     required this.type,
@@ -410,7 +284,6 @@ final class RtcStats {
     required this.values,
   });
 
-  /// Report id.
   final String id;
 
   /// Report type, e.g. `inbound-rtp`, `outbound-rtp`, `media-source`.
@@ -423,20 +296,17 @@ final class RtcStats {
   final Map<String, Object?> values;
 }
 
-/// Emitted by [RtcPeerConnection.onTrack] when remote media arrives.
+/// Remote media arriving on [RtcPeerConnection.onTrack].
 @immutable
 final class RtcTrackEvent {
-  /// Creates a track event.
   const RtcTrackEvent({
     required this.track,
     required this.streams,
     required this.mid,
   });
 
-  /// The remote media track.
   final RtcMediaTrack track;
 
-  /// Streams the track belongs to.
   final List<RtcMediaStream> streams;
 
   /// Mid of the transceiver that received the track, if known.
@@ -448,29 +318,23 @@ abstract interface class RtcRtpSender {
   /// The media track being sent, or `null` (e.g. muted or removed).
   RtcMediaTrack? get track;
 
-  /// Current send parameters.
   RtpSendParameters getParameters();
 
-  /// Applies [parameters].
   Future<void> setParameters(RtpSendParameters parameters);
 
   /// Replaces the sent track without renegotiation.
   Future<void> replaceTrack(RtcMediaTrack? track);
 
-  /// Statistics for this sender only.
   Future<List<RtcStats>> getStats();
 }
 
 /// The receiving half of a transceiver.
 abstract interface class RtcRtpReceiver {
-  /// Kind of media this receiver receives.
   MediaKind get kind;
 
-  /// The receiver's media track, if any.
   RtcMediaTrack? get track;
 }
 
-/// An RTP transceiver.
 abstract interface class RtcRtpTransceiver {
   /// Media id; `null` until a local description was applied.
   String? get mid;
@@ -481,76 +345,57 @@ abstract interface class RtcRtpTransceiver {
   /// Negotiated direction; `null` before the first negotiation.
   Future<TransceiverDirection?> getCurrentDirection();
 
-  /// The sender.
   RtcRtpSender get sender;
 
-  /// The receiver.
   RtcRtpReceiver get receiver;
 
   /// Stops the transceiver permanently.
   Future<void> stop();
 }
 
-/// A data channel.
 abstract interface class RtcDataChannel {
-  /// The label the channel was created with.
   String get label;
 
-  /// Current state.
   DataChannelState get state;
 
-  /// State changes.
   Stream<DataChannelState> get onStateChange;
 
   /// Incoming messages. Text messages are delivered as UTF-8 bytes.
   Stream<Uint8List> get onMessage;
 
-  /// Sends a binary message.
   Future<void> send(Uint8List data);
 
-  /// Closes the channel.
   Future<void> close();
 }
 
-/// A peer connection.
 abstract interface class RtcPeerConnection {
-  /// Last known connection state.
+  /// The state getters return the last state seen on the matching stream.
   PeerConnectionState get connectionState;
 
-  /// Last known ICE connection state.
   IceConnectionState get iceConnectionState;
 
-  /// Last known ICE gathering state.
   IceGatheringState get iceGatheringState;
 
-  /// Last known signaling state.
   SignalingState get signalingState;
 
-  /// Local ICE candidates as they are gathered.
   Stream<IceCandidate> get onIceCandidate;
 
-  /// Remote tracks as they arrive.
   Stream<RtcTrackEvent> get onTrack;
 
-  /// Connection state changes.
   Stream<PeerConnectionState> get onConnectionState;
 
-  /// ICE connection state changes.
   Stream<IceConnectionState> get onIceConnectionState;
 
-  /// ICE gathering state changes.
   Stream<IceGatheringState> get onIceGatheringState;
 
-  /// Signaling state changes.
   Stream<SignalingState> get onSignalingState;
 
-  /// Adds a transceiver that sends [track].
   Future<RtcRtpTransceiver> addTransceiverWithTrack(
     RtcMediaTrack track,
     TransceiverInit init,
   );
 
-  /// Adds a transceiver of [kind] with no track (e.g. receive only).
+  /// Adds a transceiver with no track (e.g. receive only).
   Future<RtcRtpTransceiver> addTransceiverOfKind(
     MediaKind kind,
     TransceiverInit init,
@@ -559,44 +404,35 @@ abstract interface class RtcPeerConnection {
   /// All transceivers, in creation order.
   Future<List<RtcRtpTransceiver>> getTransceivers();
 
-  /// All senders, in creation order.
   Future<List<RtcRtpSender>> getSenders();
 
   /// Stops sending [sender]'s track.
   Future<void> removeTrack(RtcRtpSender sender);
 
-  /// Creates an offer.
   Future<SessionDescription> createOffer();
 
-  /// Applies a local description.
   Future<void> setLocalDescription(SessionDescription description);
 
-  /// Applies a remote description.
   Future<void> setRemoteDescription(SessionDescription description);
 
-  /// The current local description, if any (includes gathered candidates;
-  /// used by WHIP/WHEP after gathering completes).
+  /// Includes the candidates gathered so far (WHIP/WHEP read it after
+  /// gathering completes).
   Future<SessionDescription?> getLocalDescription();
 
-  /// Adds a remote ICE candidate.
   Future<void> addIceCandidate(IceCandidate candidate);
 
-  /// Creates a data channel.
   Future<RtcDataChannel> createDataChannel(String label, DataChannelInit init);
 
   /// Statistics for the whole connection, or only for [track].
   Future<List<RtcStats>> getStats([RtcMediaTrack? track]);
 
-  /// Closes the connection. All streams of this object complete.
+  /// Closes the connection; every stream of this object completes.
   Future<void> close();
 }
 
-/// Factory for WebRTC objects.
 abstract interface class RtcAdapter {
-  /// Creates a peer connection (bundle policy `max-bundle`).
   Future<RtcPeerConnection> createPeerConnection(RtcConfiguration config);
 
-  /// Creates an empty local media stream.
   Future<RtcMediaStream> createLocalMediaStream(String label);
 }
 

@@ -1,8 +1,3 @@
-/// The outgoing message queue (SPEC §5).
-///
-/// Owner: **Signaling** agent.
-library;
-
 import 'dart:collection';
 import 'dart:typed_data';
 
@@ -12,7 +7,7 @@ import 'package:fishjam_client/src/proto/fishjam/peer_notifications.pb.dart';
 
 /// Whether [message] is sent immediately on the current socket instead of
 /// going through the queue: `authRequest`, and the peer media events
-/// `connect`, `renegotiateTracks`, `sdpOffer`, `candidate` (SPEC §5).
+/// `connect`, `renegotiateTracks`, `sdpOffer`, `candidate`.
 bool bypassesQueue(PeerMessage message) => switch (message.whichContent()) {
   PeerMessage_Content.authRequest => true,
   PeerMessage_Content.peerMediaEvent => switch (message.peerMediaEvent
@@ -26,12 +21,9 @@ bool bypassesQueue(PeerMessage message) => switch (message.whichContent()) {
   _ => false,
 };
 
-/// Ordered queue in front of the socket (SPEC §5).
-///
-/// While held, enqueued frames are kept; otherwise they are written at once
-/// in FIFO order through the `send` callback given to the constructor.
+/// Ordered queue in front of the socket. While held, enqueued frames are
+/// kept; otherwise they are written at once in FIFO order through `send`.
 class MessageQueue {
-  /// Creates a queue that writes frames with `send`.
   MessageQueue({required this._send});
 
   final void Function(Uint8List frame) _send;
@@ -39,7 +31,6 @@ class MessageQueue {
   bool _held = false;
   bool _flushing = false;
 
-  /// Number of frames waiting.
   int get length => _frames.length;
 
   /// Adds [frame]; writes it immediately (after older frames) unless held.
@@ -48,7 +39,6 @@ class MessageQueue {
     _flush();
   }
 
-  /// Starts holding frames.
   void hold() => _held = true;
 
   /// Stops holding and writes every waiting frame in order.
