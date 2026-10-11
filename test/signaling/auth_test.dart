@@ -155,10 +155,15 @@ void main() {
         DisconnectReason.joinError,
       );
       expect(
-        disconnectReasonFor(
-          const SessionEndedClose(SessionEndReason.replacedByNewClient),
-        ),
-        DisconnectReason.replacedByNewClient,
+        [
+          for (final end in SessionEndReason.values)
+            disconnectReasonFor(SessionEndedClose(end)),
+        ],
+        [
+          DisconnectReason.peerRemoved,
+          DisconnectReason.roomStopped,
+          DisconnectReason.replacedByNewClient,
+        ],
       );
       expect(
         disconnectReasonFor(const ProtocolErrorClose()),

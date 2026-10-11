@@ -444,47 +444,6 @@ Map<String, Object?> peerMessageToJson(PeerMessage message) =>
 
 // ------------------------------------------------------------------ events
 
-/// Names [describeEvent] can produce.
-Set<String> get knownEventNames => const {
-  'AuthSucceeded',
-  'AuthFailed',
-  'JoinFailed',
-  'Joined',
-  'Disconnected',
-  'ReconnectionStarted',
-  'Reconnected',
-  'ReconnectionFailed',
-  'ConnectionError',
-  'ServerError',
-  'PeerJoined',
-  'PeerLeft',
-  'PeerUpdated',
-  'ComponentAdded',
-  'ComponentRemoved',
-  'ComponentUpdated',
-  'TrackAdded',
-  'TrackReady',
-  'TrackRemoved',
-  'TrackUpdated',
-  'TrackEncodingChanged',
-  'TrackVariantsChanged',
-  'VoiceActivityChanged',
-  'TargetTrackEncodingRequested',
-  'LocalTrackAdded',
-  'LocalTrackRemoved',
-  'LocalTrackReplaced',
-  'LocalTrackMuted',
-  'LocalTrackUnmuted',
-  'LocalTrackBandwidthSet',
-  'LocalTrackEncodingBandwidthSet',
-  'LocalTrackEncodingEnabled',
-  'LocalTrackEncodingDisabled',
-  'LocalPeerMetadataChanged',
-  'LocalTrackMetadataChanged',
-  'DataChannelsReady',
-  'DataChannelsError',
-};
-
 /// JSON-like description of [event] used by `expect` steps.
 Map<String, Object?> describeEvent(FishjamEvent event) => {
   'event': switch (event) {

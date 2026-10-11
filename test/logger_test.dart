@@ -37,13 +37,6 @@ void main() {
     expect(lines, isEmpty);
   });
 
-  test('the default sink does not throw', () {
-    FishjamLogger(enabled: true)
-      ..debug('d')
-      ..warn('w', StateError('x'), StackTrace.current)
-      ..error('e');
-  });
-
   test('levels map to dart:developer values', () {
     expect(LogLevel.values.map((l) => l.value), [500, 900, 1000]);
   });

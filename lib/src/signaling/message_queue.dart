@@ -39,9 +39,6 @@ class MessageQueue {
   bool _held = false;
   bool _flushing = false;
 
-  /// Whether frames are currently held (during reconnection).
-  bool get isHeld => _held;
-
   /// Number of frames waiting.
   int get length => _frames.length;
 

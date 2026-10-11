@@ -85,7 +85,6 @@ void main() {
 
       expect(written, [_frame(1), _frame(2)]);
       expect(queue.length, 0);
-      expect(queue.isHeld, isFalse);
     });
 
     test('holds frames and flushes them in FIFO order on release', () {
@@ -94,14 +93,12 @@ void main() {
         ..enqueue(_frame(1))
         ..enqueue(_frame(2));
 
-      expect(queue.isHeld, isTrue);
       expect(written, isEmpty);
       expect(queue.length, 2);
 
       queue.release();
       expect(written, [_frame(1), _frame(2)]);
       expect(queue.length, 0);
-      expect(queue.isHeld, isFalse);
 
       queue.enqueue(_frame(3));
       expect(written.last, _frame(3));
@@ -114,10 +111,7 @@ void main() {
         ..clear();
 
       expect(queue.length, 0);
-      expect(queue.isHeld, isFalse);
-      queue
-        ..release()
-        ..enqueue(_frame(2));
+      queue.enqueue(_frame(2));
       expect(written, [_frame(2)]);
     });
 

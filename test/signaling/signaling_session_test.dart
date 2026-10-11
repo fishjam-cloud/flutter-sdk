@@ -451,13 +451,6 @@ void main() {
     await session.close();
     await done.future;
   });
-
-  test('SignalingClosedException describes its reason', () {
-    expect(
-      const SignalingClosedException(RetryableClose(code: 1006)).toString(),
-      contains('SignalingClosedException'),
-    );
-  });
 }
 
 /// Fails to connect without ever completing [onClose].

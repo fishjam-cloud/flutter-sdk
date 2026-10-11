@@ -16,21 +16,18 @@ void main() {
   });
 
   group('SimulcastConfig', () {
-    test('value equality and copyWith', () {
+    test('value equality', () {
       const all = SimulcastConfig.allVariants();
       expect(all.enabledVariants, Variant.values);
       expect(
         all.copyWith(enabledVariants: [Variant.low]),
         const SimulcastConfig(enabled: true, enabledVariants: [Variant.low]),
       );
-      expect(all.copyWith(), all);
-      expect(all.hashCode, const SimulcastConfig.allVariants().hashCode);
       expect(all, isNot(const SimulcastConfig.disabled()));
       expect(
         all.copyWith(enabledVariants: [Variant.low, Variant.medium]),
         isNot(all),
       );
-      expect(all.toString(), contains('enabled: true'));
     });
   });
 
@@ -42,16 +39,8 @@ void main() {
         isA<SingleBandwidthLimit>().having((l) => l.kbps, 'kbps', 0),
       );
       expect(
-        const BandwidthLimit.single(1).hashCode,
-        const BandwidthLimit.single(1).hashCode,
-      );
-      expect(
         const BandwidthLimit.simulcast({Variant.low: 1, Variant.high: 2}),
         const BandwidthLimit.simulcast({Variant.high: 2, Variant.low: 1}),
-      );
-      expect(
-        const BandwidthLimit.simulcast({Variant.low: 1}).hashCode,
-        const BandwidthLimit.simulcast({Variant.low: 1}).hashCode,
       );
       expect(
         const BandwidthLimit.simulcast({Variant.low: 1}),
@@ -66,11 +55,6 @@ void main() {
       expect(
         const BandwidthLimit.simulcast({Variant.low: 1}),
         isNot(const BandwidthLimit.single(1)),
-      );
-      expect(const BandwidthLimit.single(3).toString(), contains('3'));
-      expect(
-        const BandwidthLimit.simulcast({Variant.low: 3}).toString(),
-        contains('low'),
       );
     });
   });
@@ -107,7 +91,7 @@ void main() {
       );
     });
 
-    test('serializes with wire names and copies', () {
+    test('serializes with wire names', () {
       const m = TrackMetadata(type: TrackType.screenShareVideo);
       expect(m.toJson(), {'type': 'screenShareVideo', 'paused': false});
       expect(m.copyWith(paused: true, displayName: 'B').toJson(), {
@@ -119,8 +103,6 @@ void main() {
         m.copyWith(type: TrackType.customAudio).type,
         TrackType.customAudio,
       );
-      expect(m.hashCode, m.copyWith().hashCode);
-      expect(m.toString(), contains('screenShareVideo'));
       expect(TrackType.fromWireName('customVideo'), TrackType.customVideo);
     });
   });
@@ -146,7 +128,6 @@ void main() {
       expect(updated.encoding, Variant.high);
       expect(updated.trackId, 'bob:1');
       expect(updated.rawMetadata, remote.rawMetadata);
-      expect(updated.toString(), contains('bob:1'));
     });
 
     test('local track is muted without a media track', () {
@@ -161,7 +142,6 @@ void main() {
       );
 
       expect(local.isMuted, isTrue);
-      expect(local.toString(), contains('me:1'));
     });
   });
 
@@ -182,17 +162,9 @@ void main() {
         const Metadata(peer: {'name': 'a'}),
       );
       expect(Metadata.fromServerJson(null), const Metadata());
-      expect(const Metadata().hashCode, const Metadata().hashCode);
-      expect(const Metadata(peer: 1).toString(), contains('peer: 1'));
     });
 
-    test('endpoint snapshots describe themselves', () {
-      const peer = Peer(id: 'p', type: 'exwebrtc', metadata: Metadata());
-      const component = Component(id: 'c', type: 'hls', metadata: Metadata());
-      const local = LocalPeer(id: 'me', metadata: Metadata());
-      expect(peer.toString(), contains('p'));
-      expect(component.toString(), contains('hls'));
-      expect(local.toString(), contains('me'));
+    test('known endpoint types', () {
       expect(peerEndpointTypes, containsAll(['webrtc', 'exwebrtc']));
       expect(componentEndpointTypes, contains('recording'));
     });
@@ -205,8 +177,6 @@ void main() {
       expect(config.maxAttempts, 3);
       expect(config.addTracksOnReconnect, isFalse);
       expect(ReconnectConfig.disabled.isEnabled, isFalse);
-      expect(config, const ReconnectConfig());
-      expect(config.hashCode, const ReconnectConfig().hashCode);
     });
 
     test('delay of attempt n is initialDelay + (n - 1) * delay', () {

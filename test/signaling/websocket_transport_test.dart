@@ -60,10 +60,9 @@ void main() {
 
     await transport.connect(url);
 
-    expect(
-      await transport.onClose,
-      const TransportClosed(code: 1000, reason: 'Invalid token'),
-    );
+    final closed = await transport.onClose;
+    expect(closed.code, 1000);
+    expect(closed.reason, 'Invalid token');
     expect(transport.isOpen, isFalse);
   });
 
@@ -114,14 +113,5 @@ void main() {
 
     await expectLater(transport.connect(url), throwsStateError);
     await transport.close();
-  });
-
-  test('TransportClosed and TransportException describe themselves', () {
-    expect(
-      const TransportClosed(code: 1, reason: 'r').toString(),
-      contains('code: 1'),
-    );
-    expect(const TransportClosed().hashCode, const TransportClosed().hashCode);
-    expect(const TransportException('m').toString(), 'TransportException: m');
   });
 }

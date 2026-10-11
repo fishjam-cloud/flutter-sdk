@@ -30,16 +30,6 @@ final class TransportClosed {
   final Object? error;
 
   @override
-  bool operator ==(Object other) =>
-      other is TransportClosed &&
-      other.code == code &&
-      other.reason == reason &&
-      other.error == error;
-
-  @override
-  int get hashCode => Object.hash(code, reason, error);
-
-  @override
   String toString() =>
       'TransportClosed(code: $code, reason: $reason, error: $error)';
 }
