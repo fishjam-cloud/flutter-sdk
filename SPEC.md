@@ -589,6 +589,7 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D18 | `tracksPriorityChanged`, `bandwidthEstimationChanged`, `getBandwidthEstimation` exist but are never fed | dropped | dead API |
 | D19 | ICE `disconnected` sends `renegotiateTracks` even mid-cycle | deferred until the cycle ends (§8.2) | keeps client and server in step |
 | D20 | a failed `replaceTrack` is swallowed; the call succeeds | rolled back, then the call fails with the error (§11.3) | the app learns the media was not replaced |
+| D21 | local track ids of the lost session silently disappear on reconnect | `LocalTrackRemoved` for every old id; restored tracks get `LocalTrackAdded` with new ids (§6) | apps can drop stale ids |
 
 ## 23. Golden fixtures
 

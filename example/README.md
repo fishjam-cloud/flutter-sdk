@@ -16,7 +16,8 @@ On the join screen choose one of:
 - **Sandbox API** — enter the Sandbox API URL from the Fishjam dashboard, a room name and your name. The
   Sandbox API is an unauthenticated test backend: **use it for prototyping only, never in production.**
 
-The iOS simulator has no camera; use a device to publish video. Android emulators may need the VP8 codec.
+The iOS simulator has no camera; use a device to publish video. Android emulators decode only VP8, so create
+rooms for them with the VP8 video codec.
 
 Platform setup used here (copy it into your app): camera and microphone usage strings in
 `ios/Runner/Info.plist`, camera/microphone/network permissions in `android/app/src/main/AndroidManifest.xml`
