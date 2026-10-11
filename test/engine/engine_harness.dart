@@ -1,31 +1,27 @@
-/// Wires an [RtcEngine] to [FakeTransport], [FakeRtcAdapter] and the Tracks
-/// fakes, with just enough signaling (auth, media event routing) and session
-/// handling (server error, leave) to replay the golden fixtures at the
-/// engine level.
+/// Wires an [RtcEngine] to [FakeRtcAdapter] and the real Tracks module
+/// ([LocalTrackRegistry], [RemoteStore]), recording what the engine sends
+/// and emits.
 library;
-
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:fishjam_client/src/engine/rtc_engine.dart';
 import 'package:fishjam_client/src/logger.dart';
-import 'package:fishjam_client/src/models/config.dart';
 import 'package:fishjam_client/src/models/events.dart';
-import 'package:fishjam_client/src/models/simulcast.dart';
-import 'package:fishjam_client/src/models/track.dart';
 import 'package:fishjam_client/src/proto/fishjam/media_events/peer/peer.pb.dart'
     as peer;
 import 'package:fishjam_client/src/proto/fishjam/media_events/server/server.pb.dart'
     as server;
-import 'package:fishjam_client/src/proto/fishjam/peer_notifications.pb.dart';
-import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
-import 'package:fishjam_client/src/version.dart';
+import 'package:fishjam_client/src/tracks/local_track.dart';
+import 'package:fishjam_client/src/tracks/remote_track.dart';
 
 import '../fakes/fake_rtc.dart';
-import '../fakes/fake_transport.dart';
 import '../support/fixtures.dart';
-import 'fake_tracks.dart';
+
+/// Creates the [RemoteStore] of a harness.
+typedef RemoteStoreFactory = RemoteStore Function({
+  required FishjamLogger logger,
+  required void Function(FishjamEvent event) emit,
+  required void Function(peer.MediaEvent event) sendMediaEvent,
+});
 
 /// One engine plus its fakes.
 class EngineHarness {
@@ -33,27 +29,31 @@ class EngineHarness {
   EngineHarness({
     FishjamLogger? logger,
     FakeRtcAdapter? rtc,
+    RemoteStoreFactory remoteStore = RemoteStore.new,
     Duration nativeCallTimeout = const Duration(seconds: 10),
   }) : logger = logger ?? FishjamLogger.disabled(),
        rtc = rtc ?? FakeRtcAdapter() {
-    remote = FakeRemoteStore(emit: events.add);
+    localTracks = LocalTrackRegistry(
+      logger: this.logger,
+      sendMediaEvent: sent.add,
+      emit: events.add,
+    );
+    remote = remoteStore(
+      logger: this.logger,
+      emit: events.add,
+      sendMediaEvent: sent.add,
+    );
     engine = RtcEngine(
       adapter: this.rtc,
       nativeCallTimeout: nativeCallTimeout,
       logger: this.logger,
-      sendMediaEvent: _send,
+      sendMediaEvent: sent.add,
       emit: events.add,
       localTracks: localTracks,
       remote: remote,
-      createLocalTrack: fakeLocalTrackFactory,
       onServerError: (message) {
         serverErrors.add(message);
-        final hook = onServerErrorHook;
-        if (hook != null) {
-          hook(message);
-        } else {
-          unawaited(leave(DisconnectReason.serverError));
-        }
+        onServerErrorHook?.call(message);
       },
       onLocalPeerRemoved: () {
         localPeerRemovals++;
@@ -66,29 +66,26 @@ class EngineHarness {
   /// Logger passed to the engine.
   final FishjamLogger logger;
 
-  /// Transports created by [connect].
-  final transports = FakeTransportFactory();
-
   /// The WebRTC fake.
   final FakeRtcAdapter rtc;
 
-  /// Replaces the default reaction to a server error (leave).
+  /// Runs after a server error was recorded.
   void Function(String message)? onServerErrorHook;
 
   /// Runs when the local peer was removed.
   void Function()? onLocalPeerRemovedHook;
 
-  /// Every event the engine (or this harness) emitted.
+  /// Every event the engine emitted (plus `Joined`, added by [join]).
   final List<FishjamEvent> events = [];
 
-  /// Every peer media event the engine sent, decoded.
+  /// Every peer media event the engine sent.
   final List<peer.MediaEvent> sent = [];
 
-  /// The local track registry fake.
-  final localTracks = FakeLocalTrackRegistry();
+  /// The local track registry.
+  late final LocalTrackRegistry localTracks;
 
-  /// The remote store fake.
-  late final FakeRemoteStore remote;
+  /// The remote store.
+  late final RemoteStore remote;
 
   /// The engine under test.
   late final RtcEngine engine;
@@ -102,63 +99,15 @@ class EngineHarness {
   /// Number of `onLocalPeerRemoved` calls.
   int localPeerRemovals = 0;
 
-  Object? _peerMetadata;
-
-  /// The current transport.
-  FakeTransport get transport => transports.last;
-
   /// The peer connection created by the engine.
   FakePeerConnection get pc => rtc.lastPeerConnection;
-
-  void _send(peer.MediaEvent event) {
-    sent.add(event);
-    if (transports.created.isEmpty) return;
-    transport.send(PeerMessage(peerMediaEvent: event).writeToBuffer());
-  }
-
-  /// Opens a transport, authenticates and completes on `connected`.
-  Future<void> connect({
-    String url = 'ws://fishjam.test',
-    String token = 'peer-token',
-    Object? peerMetadata,
-  }) async {
-    final transport = transports();
-    await transport.connect(Uri.parse(url));
-    transport.incoming.listen(_onFrame);
-    _peerMetadata = peerMetadata;
-    transport.send(
-      PeerMessage(
-        authRequest: PeerMessage_AuthRequest(
-          token: token,
-          sdkVersion: sdkVersion,
-        ),
-      ).writeToBuffer(),
-    );
-    events.add(await engine.joined);
-  }
-
-  void _onFrame(List<int> frame) {
-    final message = PeerMessage.fromBuffer(frame);
-    switch (message.whichContent()) {
-      case PeerMessage_Content.authenticated:
-        events.add(const AuthSucceeded(roomType: RoomType.conference));
-        engine.connect(_peerMetadata);
-      case PeerMessage_Content.serverMediaEvent:
-        unawaited(engine.handleServerEvent(message.serverMediaEvent));
-      case _:
-        break;
-    }
-  }
 
   /// Joins a room whose `connected` lists [endpoints] besides the local
   /// peer `local-peer`.
   Future<void> join({
     Map<String, server.MediaEvent_Endpoint> endpoints = const {},
   }) async {
-    final joined = connect(peerMetadata: {'name': 'alice'});
-    await settle();
-    transport.receive(PeerMessage(authenticated: PeerMessage_Authenticated()));
-    await settle();
+    engine.connect({'name': 'alice'});
     await receive(
       server.MediaEvent(
         connected: server.MediaEvent_Connected(
@@ -180,12 +129,12 @@ class EngineHarness {
         ),
       ),
     );
-    await joined;
+    events.add(await engine.joined);
   }
 
   /// The server sends [event]; waits until it was handled.
   Future<void> receive(server.MediaEvent event) async {
-    transport.receive(PeerMessage(serverMediaEvent: event));
+    await engine.handleServerEvent(event);
     await settle();
   }
 
@@ -218,90 +167,4 @@ class EngineHarness {
   /// The last `sdpOffer` sent.
   peer.MediaEvent_SdpOffer get lastOffer =>
       sentOf(peer.MediaEvent_Content.sdpOffer).last.sdpOffer;
-
-  /// Leaves: sends `disconnect` first, then tears down (SPEC §3.3).
-  Future<void> leave([DisconnectReason reason = DisconnectReason.left]) async {
-    engine.sendDisconnect();
-    await engine.close();
-    await transport.close();
-    events.add(Disconnected(reason));
-  }
-
-  /// Performs a fixture `api` step.
-  Future<Object?> api(ApiStep step, Bindings bindings) {
-    final args = bindings.substitute(step.args)! as Map<String, Object?>;
-    switch (step.call) {
-      case 'connect':
-        return connect(
-          url: args['url']! as String,
-          token: args['token']! as String,
-          peerMetadata: args['peerMetadata'],
-        );
-      case 'leave':
-        return leave();
-      case 'addTrack':
-        final kind = MediaKind.values.byName(args['kind']! as String);
-        return engine.addTrack(
-          FakeMediaTrack(kind: kind),
-          metadata: TrackMetadata.tryParse(args['metadata']),
-          simulcastConfig: _simulcast(args['simulcastConfig']),
-          maxBandwidth: _bandwidth(args['maxBandwidth']),
-        );
-      case 'removeTrack':
-        return engine.removeTrack(args['trackId']! as String);
-      case 'updatePeerMetadata':
-        engine.updatePeerMetadata(args['metadata']);
-        return Future.value();
-      case 'updateTrackMetadata':
-        engine.updateTrackMetadata(
-          args['trackId']! as String,
-          TrackMetadata.tryParse(args['metadata']),
-        );
-        return Future.value();
-      default:
-        throw UnimplementedError('engine harness: ${step.call}');
-    }
-  }
-
-  /// Replays fixture [name] without the steps at [skip] (steps covered by
-  /// other modules).
-  Future<void> replay(String name, {Set<int> skip = const {}}) async {
-    final json = jsonDecode(
-      File('$fixturesDirectory/$name.json').readAsStringSync(),
-    ) as Map<String, Object?>;
-    final steps = json['steps']! as List<Object?>;
-    json['steps'] = [
-      for (var i = 0; i < steps.length; i++)
-        if (!skip.contains(i)) steps[i],
-    ];
-    late final FixtureReplayer replayer;
-    replayer = FixtureReplayer(
-      fixture: Fixture.parse(jsonEncode(json)),
-      transports: transports,
-      rtc: rtc,
-      events: events,
-      onApi: (step) => api(step, replayer.bindings),
-    );
-    await replayer.run();
-  }
 }
-
-SimulcastConfig _simulcast(Object? json) {
-  if (json is! Map<String, Object?>) return const SimulcastConfig.disabled();
-  return SimulcastConfig(
-    enabled: json['enabled']! as bool,
-    enabledVariants: [
-      for (final v in (json['enabledVariants'] as List<Object?>?) ?? const [])
-        Variant.values.byName(v! as String),
-    ],
-  );
-}
-
-BandwidthLimit _bandwidth(Object? json) => switch (json) {
-  null => BandwidthLimit.unlimited,
-  final int kbps => BandwidthLimit.single(kbps),
-  final Map<String, Object?> map => BandwidthLimit.simulcast({
-    for (final e in map.entries) Variant.values.byName(e.key): e.value! as int,
-  }),
-  _ => throw ArgumentError(json),
-};

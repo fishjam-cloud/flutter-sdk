@@ -6,7 +6,6 @@ library;
 
 import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/models/simulcast.dart';
-import 'package:fishjam_client/src/models/track.dart';
 import 'package:fishjam_client/src/proto/fishjam/media_events/peer/peer.pb.dart'
     as peer;
 import 'package:fishjam_client/src/proto/fishjam/media_events/shared.pbenum.dart'
@@ -180,11 +179,6 @@ List<peer.MediaEvent_VariantBitrate> variantBitrates(
         ),
   ],
 };
-
-/// Convenience for [variantBitrates] of a local track snapshot.
-List<peer.MediaEvent_VariantBitrate> trackVariantBitrates(
-  LocalTrackContext track,
-) => variantBitrates(track.maxBandwidth, track.kind);
 
 int _resolveAgainstCap(int kbps, int cap, String label, FishjamLogger logger) {
   if (kbps <= 0) return cap;

@@ -30,7 +30,6 @@ import 'package:fishjam_client/src/signaling/message_queue.dart';
 import 'package:fishjam_client/src/signaling/reconnect.dart';
 import 'package:fishjam_client/src/signaling/signaling_session.dart';
 import 'package:fishjam_client/src/signaling/transport.dart';
-import 'package:fishjam_client/src/stats/audio_level.dart';
 import 'package:fishjam_client/src/stats/stats_reporter.dart';
 import 'package:fishjam_client/src/tracks/bandwidth.dart';
 import 'package:fishjam_client/src/tracks/encodings.dart';
@@ -64,7 +63,6 @@ const _imported = {
   'src/signaling/reconnect.dart',
   'src/signaling/signaling_session.dart',
   'src/signaling/transport.dart',
-  'src/stats/audio_level.dart',
   'src/stats/stats_reporter.dart',
   'src/tracks/bandwidth.dart',
   'src/tracks/encodings.dart',

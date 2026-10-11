@@ -27,19 +27,6 @@ import 'package:fishjam_client/src/tracks/local_track.dart';
 import 'package:fishjam_client/src/tracks/remote_track.dart';
 import 'package:fishjam_client/src/wire.dart';
 
-/// Creates the [LocalTrack] for `addTrack` (SPEC §11.1 steps 3, 5).
-/// [maxBandwidth] is the requested limit; the factory resolves it
-/// (SPEC §13) and throws [ArgumentError] for an invalid one, before
-/// anything is registered.
-typedef LocalTrackFactory = LocalTrack Function({
-  required String trackId,
-  required RtcMediaTrack track,
-  required RtcMediaStream? stream,
-  required TrackMetadata? metadata,
-  required SimulcastConfig simulcastConfig,
-  required BandwidthLimit maxBandwidth,
-});
-
 /// How the server ended the session through a media event (SPEC §3.4).
 enum EngineEnd {
   /// A server `error` media event.
@@ -65,8 +52,7 @@ class RtcEngine {
   /// acts on: [onServerError] after `ServerError` was emitted (leave,
   /// SPEC §3.4), [onLocalPeerRemoved] when the server removed this peer
   /// (SPEC §3.4), [onConnectionFailed] after `ConnectionError` was emitted
-  /// (a retryable loss, SPEC §8.4). [createLocalTrack] defaults to the
-  /// Tracks module's implementation.
+  /// (a retryable loss, SPEC §8.4).
   RtcEngine({
     required this._adapter,
     required this._logger,
@@ -74,12 +60,11 @@ class RtcEngine {
     required this._emit,
     required this.localTracks,
     required this.remote,
-    LocalTrackFactory? createLocalTrack,
     this.nativeCallTimeout = const Duration(seconds: 10),
     this.onServerError,
     this.onLocalPeerRemoved,
     this.onConnectionFailed,
-  }) : _createLocalTrack = createLocalTrack ?? _defaultLocalTrack(_logger) {
+  }) {
     _commands = CommandQueue(
       negotiation: _negotiation,
       executor: _executor,
@@ -112,7 +97,6 @@ class RtcEngine {
   final FishjamLogger _logger;
   final void Function(peer.MediaEvent event) _sendMediaEvent;
   final void Function(FishjamEvent event) _emit;
-  final LocalTrackFactory _createLocalTrack;
 
   final _executor = SerialExecutor();
   final _negotiation = NegotiationStateMachine();
@@ -212,13 +196,14 @@ class RtcEngine {
             }
             final ownStream = stream == null;
             final trackStream = stream ?? await _streamFor(track, metadata);
-            final local = _createLocalTrack(
+            final local = _newLocalTrack(
               trackId: localTracks.newTrackId(),
               track: track,
               stream: trackStream,
               metadata: metadata,
               simulcastConfig: simulcastConfig,
               maxBandwidth: maxBandwidth,
+              logger: _logger,
             );
             if (ownStream) await trackStream.addTrack(track);
             localTracks.register(local);
@@ -822,27 +807,29 @@ class RtcEngine {
 }
 
 /// The Tracks module's local track construction: video limits are resolved
-/// against the caps, audio tracks are added without a limit (SPEC §13.4).
-LocalTrackFactory _defaultLocalTrack(FishjamLogger logger) =>
-    ({
-      required trackId,
-      required track,
-      required stream,
-      required metadata,
-      required simulcastConfig,
-      required maxBandwidth,
-    }) => LocalTrack(
-      trackId: trackId,
-      kind: track.kind,
-      track: track,
-      stream: stream,
-      metadata: metadata,
-      simulcastConfig: simulcastConfig,
-      maxBandwidth: track.kind == MediaKind.video
-          ? resolveVideoBandwidth(
-              maxBandwidth,
-              simulcast: simulcastConfig.enabled,
-              logger: logger,
-            )
-          : BandwidthLimit.unlimited,
-    );
+/// against the caps (throwing [ArgumentError] for an invalid one, before
+/// anything is registered), audio tracks are added without a limit
+/// (SPEC §11.1, §13.4).
+LocalTrack _newLocalTrack({
+  required String trackId,
+  required RtcMediaTrack track,
+  required RtcMediaStream? stream,
+  required TrackMetadata? metadata,
+  required SimulcastConfig simulcastConfig,
+  required BandwidthLimit maxBandwidth,
+  required FishjamLogger logger,
+}) => LocalTrack(
+  trackId: trackId,
+  kind: track.kind,
+  track: track,
+  stream: stream,
+  metadata: metadata,
+  simulcastConfig: simulcastConfig,
+  maxBandwidth: track.kind == MediaKind.video
+      ? resolveVideoBandwidth(
+          maxBandwidth,
+          simulcast: simulcastConfig.enabled,
+          logger: logger,
+        )
+      : BandwidthLimit.unlimited,
+);

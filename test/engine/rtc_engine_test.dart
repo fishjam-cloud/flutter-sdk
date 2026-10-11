@@ -13,12 +13,12 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/shared.pb.dart'
     as shared;
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:fishjam_client/src/tracks/local_track.dart';
+import 'package:fishjam_client/src/tracks/remote_track.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_rtc.dart';
 import '../support/fixtures.dart';
 import 'engine_harness.dart';
-import 'fake_tracks.dart';
 
 typedef _C = peer.MediaEvent_Content;
 
@@ -116,13 +116,12 @@ void main() {
       expect(h.localTracks.peerId, 'local-peer');
       expect(h.localTracks.peerMetadata, {'name': 'alice'});
       expect(h.localTracks.serverMetadata, {'role': 'x'});
-      expect(h.remote.calls, ['loadConnected']);
     });
 
     test('events before connected are dropped (SPEC §7)', () async {
       final h = EngineHarness();
       await h.engine.handleServerEvent(_tracksAdded('bob', ['bob:cam']));
-      expect(h.remote.calls, isEmpty);
+      expect(h.events, isEmpty);
     });
 
     test('a second connected is ignored', () async {
@@ -168,55 +167,9 @@ void main() {
   });
 
   group('media event dispatch (SPEC §7)', () {
-    test('forwards remote endpoint events to the remote store', () async {
-      final (h, _) = await _joined();
-      h.remote.calls.clear();
-      for (final e in [
-        server.MediaEvent(
-          endpointAdded: server.MediaEvent_EndpointAdded(endpointId: 'bob'),
-        ),
-        server.MediaEvent(
-          endpointUpdated: server.MediaEvent_EndpointUpdated(endpointId: 'bob'),
-        ),
-        server.MediaEvent(
-          trackUpdated: server.MediaEvent_TrackUpdated(endpointId: 'bob'),
-        ),
-        server.MediaEvent(
-          tracksRemoved: server.MediaEvent_TracksRemoved(endpointId: 'bob'),
-        ),
-        server.MediaEvent(
-          trackVariantSwitched: server.MediaEvent_TrackVariantSwitched(),
-        ),
-        server.MediaEvent(
-          trackVariantEnabled: server.MediaEvent_TrackVariantEnabled(),
-        ),
-        server.MediaEvent(
-          trackVariantDisabled: server.MediaEvent_TrackVariantDisabled(),
-        ),
-        server.MediaEvent(vadNotification: server.MediaEvent_VadNotification()),
-        server.MediaEvent(
-          endpointRemoved: server.MediaEvent_EndpointRemoved(endpointId: 'bob'),
-        ),
-      ]) {
-        await h.engine.handleServerEvent(e);
-      }
-      expect(h.remote.calls, [
-        'endpointAdded',
-        'endpointUpdated',
-        'trackUpdated',
-        'tracksRemoved',
-        'variantSwitched',
-        'variantEnabled',
-        'variantDisabled',
-        'vadNotification',
-        'endpointRemoved',
-      ]);
-      expect(h.localPeerRemovals, 0);
-    });
-
     test('events about the local endpoint are ignored (D11)', () async {
       final (h, _) = await _joined();
-      h.remote.calls.clear();
+      h.events.clear();
       for (final e in [
         server.MediaEvent(
           endpointAdded: server.MediaEvent_EndpointAdded(
@@ -242,7 +195,7 @@ void main() {
       ]) {
         await h.engine.handleServerEvent(e);
       }
-      expect(h.remote.calls, isEmpty);
+      expect(h.events, isEmpty);
 
       // The negotiation state did not move: addTrack still requests a cycle.
       unawaited(h.engine.addTrack(FakeMediaTrack.video(), metadata: _camera));
@@ -261,7 +214,6 @@ void main() {
       );
       await settle();
       expect(h.localPeerRemovals, 1);
-      expect(h.remote.calls, isNot(contains('endpointRemoved')));
     });
 
     test('error emits ServerError and reports it', () async {
@@ -277,11 +229,23 @@ void main() {
     test(
       'a failing handler is logged and later events are still handled',
       () async {
-        final (h, logs) = await _joined();
-        h.remote.throwOn.add('endpointAdded');
+        final logs = <String>[];
+        final h = EngineHarness(
+          logger: FishjamLogger(
+            enabled: true,
+            sink: (level, message, {error, stackTrace}) =>
+                logs.add('${level.name} $message'),
+          ),
+          remoteStore: _FailingEndpointAdded.new,
+        );
+        await h.join(
+          endpoints: {
+            'bob': server.MediaEvent_Endpoint(endpointType: 'exwebrtc'),
+          },
+        );
         await h.engine.handleServerEvent(
           server.MediaEvent(
-            endpointAdded: server.MediaEvent_EndpointAdded(endpointId: 'bob'),
+            endpointAdded: server.MediaEvent_EndpointAdded(endpointId: 'carol'),
           ),
         );
         await h.engine.handleServerEvent(
@@ -291,7 +255,7 @@ void main() {
             ),
           ),
         );
-        expect(h.remote.calls, contains('endpointUpdated'));
+        expect(h.events.whereType<PeerUpdated>(), hasLength(1));
         expect(logs, contains(startsWith('error')));
       },
     );
@@ -303,10 +267,14 @@ void main() {
     });
 
     test('events are handled strictly in order, one at a time', () async {
-      final (h, _) = await _joined();
-      final gate = Completer<void>();
-      h.localTracks.midGate = gate.future;
-      h.remote.calls.clear();
+      final rtc = _GatedRtcAdapter();
+      final h = EngineHarness(rtc: rtc);
+      await h.join(
+        endpoints: {
+          'bob': server.MediaEvent_Endpoint(endpointType: 'exwebrtc'),
+        },
+      );
+      final gate = rtc.offerGate = Completer<void>();
 
       unawaited(h.engine.handleServerEvent(_offerData()));
       final updated = h.engine.handleServerEvent(
@@ -315,21 +283,21 @@ void main() {
         ),
       );
       await settle();
-      expect(h.remote.calls, isEmpty);
+      expect(h.events.whereType<PeerUpdated>(), isEmpty);
       expect(h.sentOf(_C.sdpOffer), isEmpty);
 
       gate.complete();
       await updated;
       expect(h.sentOf(_C.sdpOffer), hasLength(1));
-      expect(h.remote.calls, ['endpointUpdated']);
+      expect(h.events.whereType<PeerUpdated>(), hasLength(1));
     });
 
     test('nothing is handled after close', () async {
       final (h, _) = await _joined();
       await h.engine.close();
-      h.remote.calls.clear();
+      h.events.clear();
       await h.engine.handleServerEvent(_tracksAdded('bob', ['bob:cam']));
-      expect(h.remote.calls, isEmpty);
+      expect(h.events, isEmpty);
     });
   });
 
@@ -700,7 +668,22 @@ void main() {
       final (h, _) = await _joined();
       final id = await _publish(h);
       expect(id, startsWith('local-peer:'));
-      expect(h.events.whereType<LocalTrackAdded>().single.track.trackId, id);
+      final added = h.events.whereType<LocalTrackAdded>().single.track;
+      expect(added.trackId, id);
+      // Video limits resolve against the caps; audio is never limited.
+      expect(added.maxBandwidth, const BandwidthLimit.single(1500));
+
+      final mic = await _publish(h, kind: MediaKind.audio);
+      expect(
+        h.events.whereType<LocalTrackAdded>().last.track,
+        isA<LocalTrackContext>()
+            .having((t) => t.trackId, 'trackId', mic)
+            .having(
+              (t) => t.maxBandwidth,
+              'maxBandwidth',
+              BandwidthLimit.unlimited,
+            ),
+      );
     });
   });
 
@@ -760,7 +743,8 @@ void main() {
 
       await h.engine.replaceTrack(id, null);
       await h.engine.replaceTrack(id, camera);
-      expect(h.localTracks.replaced, [(id, null), (id, camera.id)]);
+      expect(h.events.whereType<LocalTrackMuted>().single.trackId, id);
+      expect(h.events.whereType<LocalTrackUnmuted>().single.trackId, id);
       expect(h.pc.callsOf('replaceTrack'), hasLength(2));
       expect(h.sentOf(_C.renegotiateTracks), hasLength(1));
     });
@@ -780,9 +764,12 @@ void main() {
     test('fails with the error of the registry', () async {
       final (h, _) = await _joined();
       final id = await _publish(h);
-      (h.localTracks.byId(id) as FakeLocalTrack).failReplace = StateError('x');
+      (h.localTracks.byId(id).transceiver!.sender as FakeRtpSender)
+          .failNextReplaceTrack = StateError(
+        'x',
+      );
       await expectLater(h.engine.replaceTrack(id, null), throwsStateError);
-      expect(h.localTracks.replaced, isEmpty);
+      expect(h.events.whereType<LocalTrackReplaced>(), isEmpty);
     });
 
     test('unknown id is an ArgumentError', () async {
@@ -1081,4 +1068,17 @@ class _GatedPeerConnection extends FakePeerConnection {
     await _adapter.offerGate?.future;
     return await super.createOffer();
   }
+}
+
+/// Fails every `endpointAdded`.
+class _FailingEndpointAdded extends RemoteStore {
+  _FailingEndpointAdded({
+    required super.logger,
+    required super.emit,
+    required super.sendMediaEvent,
+  });
+
+  @override
+  void endpointAdded(server.MediaEvent_EndpointAdded event) =>
+      throw StateError('endpointAdded failed');
 }

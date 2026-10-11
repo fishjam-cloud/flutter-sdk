@@ -1,6 +1,5 @@
 import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/models/simulcast.dart';
-import 'package:fishjam_client/src/models/track.dart';
 import 'package:fishjam_client/src/proto/fishjam/media_events/shared.pbenum.dart'
     as shared;
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
@@ -336,22 +335,6 @@ void main() {
           (shared.Variant.VARIANT_HIGH, 1228800),
         ],
       );
-    });
-
-    test('trackVariantBitrates uses the context limit and kind', () {
-      final bitrates = trackVariantBitrates(
-        const LocalTrackContext(
-          trackId: 'p:t',
-          kind: MediaKind.audio,
-          rtcTrack: null,
-          rtcStream: null,
-          metadata: null,
-          simulcastConfig: SimulcastConfig.disabled(),
-          maxBandwidth: BandwidthLimit.unlimited,
-        ),
-      );
-
-      expect(bitrates.single.bitrate, defaultAudioBitrateBps);
     });
   });
 }
