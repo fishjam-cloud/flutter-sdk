@@ -40,7 +40,7 @@ Uint8List? decodeChannelMessage(Uint8List message) {
   final ChannelMessage decoded;
   try {
     decoded = ChannelMessage.fromBuffer(message);
-  } on Exception {
+  } on Object {
     return null;
   }
   if (!decoded.hasBinary()) return null;
@@ -91,7 +91,15 @@ class DataChannelManager {
   /// A no-op when both are open; concurrent calls share one attempt.
   Future<void> createChannels() {
     if (isReady) return Future.value();
-    return _pending ??= _create();
+    final pending = _pending;
+    if (pending != null) return pending;
+    // `_create` may finish synchronously (e.g. `negotiate` throws at once),
+    // so the attempt is cleared on completion rather than inside it.
+    final attempt = _pending = _create();
+    attempt.whenComplete(() {
+      if (identical(_pending, attempt)) _pending = null;
+    }).ignore();
+    return attempt;
   }
 
   Future<void> _create() async {
@@ -108,8 +116,14 @@ class DataChannelManager {
       if (identical(_ready, ready)) {
         _finishAttempt();
         unawaited(_discardChannels());
-        _logger.error('Creating data channels failed', error, stackTrace);
-        _emit(DataChannelsError(error));
+        if (_isTeardown(error)) {
+          // The engine failed the command because the session ended
+          // (SPEC §8.3); like [close], this is a silent cancel.
+          _logger.debug('Data channel creation cancelled by teardown');
+        } else {
+          _logger.error('Creating data channels failed', error, stackTrace);
+          _emit(DataChannelsError(error));
+        }
       }
       rethrow;
     }
@@ -118,6 +132,9 @@ class DataChannelManager {
     _logger.debug('Data channels ready');
     _emit(const DataChannelsReady());
   }
+
+  static bool _isTeardown(Object error) =>
+      error is StateError && error.message == 'disconnected';
 
   void _finishAttempt() {
     _ready = null;
@@ -219,6 +236,14 @@ class DataChannelManager {
       ready.completeError(StateError('disconnected'));
     }
     await _discardChannels();
+  }
+
+  /// Closes the channels like [close] and ends every [dataStream] (so
+  /// `await for` loops finish). The facade calls it when the client is
+  /// disposed; the manager is unusable afterwards.
+  Future<void> dispose() async {
+    await close();
+    await Future.wait([_reliableData.close(), _lossyData.close()]);
   }
 
   Future<void> _discardChannels() async {

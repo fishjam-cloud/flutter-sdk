@@ -377,5 +377,195 @@ void main() {
         expect(received, isEmpty);
       });
     });
+
+    group('review fixes', () {
+      DataChannelManager build(
+        Future<void> Function(Future<void> Function(RtcPeerConnection pc) apply)
+        negotiate,
+      ) => DataChannelManager(
+        logger: FishjamLogger(
+          enabled: true,
+          sink: (level, message, {error, stackTrace}) => logs.add(message),
+        ),
+        negotiate: negotiate,
+        emit: events.add,
+        localPeerId: () => 'local-peer',
+      );
+
+      test('a synchronously throwing negotiate can be retried', () async {
+        var attempts = 0;
+        final manager = build((apply) {
+          attempts++;
+          if (attempts == 1) throw StateError('not connected');
+          return apply(pc);
+        });
+
+        await expectLater(manager.createChannels(), throwsStateError);
+        expect(events.whereType<DataChannelsError>(), hasLength(1));
+
+        final retry = manager.createChannels();
+        await pumpEventQueue();
+        expect(attempts, 2);
+        await openBoth();
+        await retry;
+        expect(manager.isReady, isTrue);
+      });
+
+      test('negotiate failing before the room is joined is a normal '
+          'failure', () async {
+        final manager = build(
+          (apply) async => throw StateError('not connected'),
+        );
+        await expectLater(
+          manager.createChannels(),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              'not connected',
+            ),
+          ),
+        );
+        expect(events.whereType<DataChannelsError>(), hasLength(1));
+      });
+
+      test('a command failed by teardown is a silent cancel', () async {
+        final gate = Completer<void>();
+        final manager = build((apply) async {
+          await apply(pc);
+          await gate.future;
+          throw StateError('disconnected');
+        });
+        final future = manager.createChannels();
+        final failed = expectLater(
+          future,
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              'disconnected',
+            ),
+          ),
+        );
+        await pumpEventQueue();
+
+        gate.complete();
+        await failed;
+        expect(events, isEmpty);
+        expect(manager.isReady, isFalse);
+        expect(channel(reliableLabel).state, DataChannelState.closed);
+      });
+
+      test('a channel created after teardown is closed', () async {
+        late DataChannelManager manager;
+        manager = build((apply) async {
+          final applying = apply(pc);
+          // Teardown while createDataChannel is in flight.
+          unawaited(manager.close());
+          await applying;
+        });
+        await expectLater(
+          manager.createChannels(),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              'disconnected',
+            ),
+          ),
+        );
+        await pumpEventQueue();
+        expect(pc.dataChannels, hasLength(1));
+        expect(pc.dataChannels.single.state, DataChannelState.closed);
+        expect(events, isEmpty);
+      });
+
+      test('a failing send is logged, not thrown', () async {
+        final failing = _FailingPeerConnection();
+        final manager = build((apply) => apply(failing));
+        final future = manager.createChannels();
+        await pumpEventQueue();
+        for (final c in failing.dataChannels) {
+          c.open();
+        }
+        await future;
+
+        manager.publish(bytes([1]), reliable: true);
+        await pumpEventQueue();
+        expect(
+          logs.where((l) => l.contains('Sending on data channel reliable')),
+          hasLength(1),
+        );
+      });
+
+      test('a failing channel close is logged, not thrown', () async {
+        final failing = _FailingPeerConnection();
+        final manager = build((apply) => apply(failing));
+        manager.createChannels().ignore(); // fails with 'disconnected'
+        await pumpEventQueue();
+
+        await manager.close();
+        expect(
+          logs.where((l) => l.contains('Closing data channel')),
+          hasLength(2),
+        );
+      });
+
+      test('dispose ends data streams', () async {
+        final reliableDone = manager.dataStream(reliable: true).toList();
+        final lossyDone = manager.dataStream(reliable: false).toList();
+        unawaited(manager.createChannels().catchError((Object _) {}));
+        await pumpEventQueue();
+
+        await manager.dispose();
+        expect(await reliableDone, isEmpty);
+        expect(await lossyDone, isEmpty);
+        expect(channel(reliableLabel).state, DataChannelState.closed);
+      });
+    });
   });
+}
+
+/// Hands out channels whose `send` and `close` fail.
+class _FailingPeerConnection extends FakePeerConnection {
+  _FailingPeerConnection() : super(const RtcConfiguration());
+
+  final List<FakeDataChannel> _inner = [];
+
+  @override
+  List<FakeDataChannel> get dataChannels => _inner;
+
+  @override
+  Future<RtcDataChannel> createDataChannel(
+    String label,
+    DataChannelInit init,
+  ) async {
+    final inner = await super.createDataChannel(label, init) as FakeDataChannel;
+    _inner.add(inner);
+    return _FailingChannel(inner);
+  }
+}
+
+class _FailingChannel implements RtcDataChannel {
+  _FailingChannel(this._inner);
+
+  final FakeDataChannel _inner;
+
+  @override
+  String get label => _inner.label;
+
+  @override
+  DataChannelState get state => _inner.state;
+
+  @override
+  Stream<DataChannelState> get onStateChange => _inner.onStateChange;
+
+  @override
+  Stream<Uint8List> get onMessage => _inner.onMessage;
+
+  @override
+  Future<void> send(Uint8List data) async => throw StateError('send failed');
+
+  @override
+  Future<void> close() async => throw StateError('close failed');
 }
