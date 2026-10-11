@@ -1,4 +1,5 @@
 import 'package:fishjam_client/fishjam_client.dart';
+import 'package:fishjam_client/src/livestream_api.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -37,7 +38,7 @@ void main() {
     await stream.addTrack(NativeTrack('cam', 'video'));
     await stream.addTrack(NativeTrack('mic', 'audio'));
 
-    final publishing = publishLivestream(
+    final publishing = publishLivestreamWith(
       stream,
       url: _whip,
       token: 'streamer-token',
@@ -62,7 +63,7 @@ void main() {
 
   test('publishLivestream rejects a stream without tracks', () async {
     await expectLater(
-      publishLivestream(
+      publishLivestreamWith(
         NativeStream('empty'),
         url: _whip,
         token: 't',
@@ -74,7 +75,7 @@ void main() {
   });
 
   test('receiveLivestream plays the WHEP stream and stops', () async {
-    final receiving = receiveLivestream(
+    final receiving = receiveLivestreamWith(
       url: _whep,
       rtcAdapter: adapter,
       httpClient: httpClient,
@@ -95,7 +96,7 @@ void main() {
 
   test('receiveLivestream maps HTTP errors', () async {
     httpClient = MockClient((request) async => http.Response('', 404));
-    final receiving = receiveLivestream(
+    final receiving = receiveLivestreamWith(
       url: _whep,
       token: 'viewer-token',
       rtcAdapter: adapter,

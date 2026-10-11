@@ -17,7 +17,7 @@ void main() {
       final fixture = Fixture.load(name);
       final transports = FakeTransportFactory();
       final rtc = FakeRtcAdapter();
-      final client = FishjamClient(
+      final client = FishjamClient.internal(
         reconnect: _reconnectConfig(fixture.config),
         rtcAdapter: rtc,
         transportFactory: transports.call,

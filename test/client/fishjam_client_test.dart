@@ -134,6 +134,19 @@ void main() {
       expect(h.client.status, ConnectionStatus.disconnected);
     });
 
+    test(
+      'connect() rejects a URL that is not ws, wss, http or https',
+      () async {
+        h = ClientHarness();
+        await expectLater(
+          h.client.connect(url: 'ftp://fishjam.test', token: 't'),
+          throwsArgumentError,
+        );
+        expect(h.client.status, ConnectionStatus.idle);
+        expect(h.transports.created, isEmpty);
+      },
+    );
+
     test('connect() while connecting throws StateError', () async {
       h = ClientHarness();
       unawaited(h.client.connect(url: 'ws://f', token: 't'));
@@ -269,6 +282,66 @@ void main() {
   });
 
   group('server-initiated end (SPEC §3.4)', () {
+    test('offerData, error and close back to back end with a server error, '
+        'not a reconnection', () async {
+      h = ClientHarness(reconnect: _fast);
+      await h.join();
+      h.transport
+        ..receive(
+          PeerMessage(
+            serverMediaEvent: server.MediaEvent(
+              offerData: server.MediaEvent_OfferData(
+                tracksTypes: server.MediaEvent_OfferData_TrackTypes(audio: 1),
+              ),
+            ),
+          ),
+        )
+        ..receive(
+          PeerMessage(
+            serverMediaEvent: server.MediaEvent(
+              error: server.MediaEvent_Error(message: 'bad'),
+            ),
+          ),
+        )
+        ..serverClose(code: 1011, reason: 'Internal server error');
+      await _wait(100);
+      final names = h.events
+          .where((e) => e is! AuthSucceeded && e is! Joined)
+          .map((e) => e.runtimeType.toString())
+          .toList();
+      expect(names, ['ServerError', 'Disconnected']);
+      expect(
+        h.eventsOf<Disconnected>().single.reason,
+        DisconnectReason.serverError,
+      );
+      expect(h.transports.created, hasLength(1));
+    });
+
+    test(
+      'removal of the local peer followed by a close is peerRemoved',
+      () async {
+        h = ClientHarness(reconnect: _fast);
+        await h.join();
+        h.transport
+          ..receive(
+            PeerMessage(
+              serverMediaEvent: server.MediaEvent(
+                endpointRemoved: server.MediaEvent_EndpointRemoved(
+                  endpointId: localPeerId,
+                ),
+              ),
+            ),
+          )
+          ..serverClose(code: 1011, reason: 'boom');
+        await _wait(100);
+        expect(
+          h.eventsOf<Disconnected>().single.reason,
+          DisconnectReason.peerRemoved,
+        );
+        expect(h.eventsOf<ReconnectionStarted>(), isEmpty);
+      },
+    );
+
     test('a server error followed by a close is a serverError leave, not a '
         'lost connection', () async {
       h = ClientHarness(reconnect: _fast);
@@ -510,7 +583,7 @@ void main() {
       var failing = false;
       final rtc = FakeRtcAdapter();
       h = ClientHarness(reconnect: _fast);
-      final client = FishjamClient(
+      final client = FishjamClient.internal(
         reconnect: _fast,
         rtcAdapter: rtc,
         transportFactory: () {
@@ -537,33 +610,111 @@ void main() {
       await client.dispose();
     });
 
-    test('queued messages are held while reconnecting and flushed after '
-        'Reconnected', () async {
-      h = ClientHarness(reconnect: _fast);
+    test('operations fail fast from the accepted loss until Reconnected, and '
+        'the lost session reports nothing more', () async {
+      h = ClientHarness(reconnect: _fastRestore);
       await h.join();
-      h.transport.serverClose(code: 1011, reason: 'boom');
+      await h.publish('audio');
+      final firstTransport = h.transport;
+      h.pc.setConnectionState(PeerConnectionState.failed);
       await settle();
-      h.client.updatePeerMetadata({'name': 'bob'});
+      expect(h.client.status, ConnectionStatus.reconnecting);
+
+      final reconnecting = throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('reconnecting'),
+        ),
+      );
+      await expectLater(h.client.addTrack(h.track('audio')), reconnecting);
+      await expectLater(h.client.removeTrack('x'), reconnecting);
+      await expectLater(h.client.replaceTrack('x', null), reconnecting);
+      await expectLater(h.client.createDataChannels(), reconnecting);
+      expect(() => h.client.updatePeerMetadata(null), reconnecting);
+      expect(() => h.client.updateTrackMetadata('x', null), reconnecting);
+      expect(
+        () => h.client.setTargetTrackEncoding('x', Variant.low),
+        reconnecting,
+      );
+      await settle();
+      expect(h.eventsOf<DataChannelsError>(), isEmpty);
+
+      // The old socket is still open, but its events are not forwarded.
+      firstTransport.receive(
+        PeerMessage(
+          serverMediaEvent: server.MediaEvent(
+            endpointAdded: server.MediaEvent_EndpointAdded(endpointId: 'carol'),
+          ),
+        ),
+      );
+      await settle();
+      expect(h.eventsOf<PeerJoined>(), isEmpty);
+
       await _wait(40);
       await h.authenticate();
-      expect(
-        h.transport.sentMessages.where(
-          (m) => m.peerMediaEvent.hasUpdateEndpointMetadata(),
-        ),
-        isEmpty,
-      );
-      expect(
-        h.sentOf(_C.connect).last.connect.metadataJson,
-        '{"name":"alice"}',
-      );
       await h.connectedEvent();
+      // Joined, but the track is still being restored.
+      expect(h.eventsOf<Joined>(), hasLength(2));
+      expect(h.client.status, ConnectionStatus.reconnecting);
+      expect(() => h.client.updatePeerMetadata(null), reconnecting);
+      await h.negotiate();
       await settle();
-      expect(
-        h.transport.sentMessages.where(
-          (m) => m.peerMediaEvent.hasUpdateEndpointMetadata(),
+      expect(h.eventsOf<Reconnected>(), hasLength(1));
+      expect(h.client.status, ConnectionStatus.joined);
+      h.client.updatePeerMetadata({'name': 'bob'});
+      expect(h.sentOf(_C.updateEndpointMetadata), hasLength(1));
+    });
+
+    test('remote endpoints of the lost session are reported gone before the '
+        'new Joined (D22)', () async {
+      h = ClientHarness(reconnect: _fast);
+      final endpoints = {
+        'bob': server.MediaEvent_Endpoint(
+          endpointType: 'exwebrtc',
+          metadataJson: '{"peer":{"name":"bob"},"server":{}}',
+          trackIdToTrack: {
+            'bob:cam': server.MediaEvent_Track(
+              metadataJson: '{"type":"camera","paused":false}',
+            ),
+          }.entries,
         ),
-        hasLength(1),
-      );
+        'rec': server.MediaEvent_Endpoint(
+          endpointType: 'recording',
+          trackIdToTrack: {
+            'rec:a': server.MediaEvent_Track(metadataJson: 'null'),
+          }.entries,
+        ),
+      };
+      await h.join(endpoints: endpoints);
+      h.events.clear();
+      h.transport.serverClose(code: 1011, reason: 'boom');
+      await _wait(40);
+      await h.authenticate();
+      await h.connectedEvent(endpoints: {'bob': endpoints['bob']!});
+      await settle();
+
+      final described = [
+        for (final e in h.events)
+          switch (e) {
+            TrackRemoved(:final track) => 'TrackRemoved ${track.trackId}',
+            PeerLeft(:final peer) => 'PeerLeft ${peer.id}',
+            ComponentRemoved(:final component) =>
+              'ComponentRemoved ${component.id}',
+            _ => e.runtimeType.toString(),
+          },
+      ];
+      expect(described, [
+        'ReconnectionStarted',
+        'TrackRemoved bob:cam',
+        'TrackRemoved rec:a',
+        'PeerLeft bob',
+        'ComponentRemoved rec',
+        'Joined',
+        'Reconnected',
+      ]);
+      expect(h.client.remotePeers.keys, ['bob']);
+      expect(h.client.remoteComponents, isEmpty);
     });
   });
 
@@ -759,6 +910,8 @@ void main() {
       expect(await h.client.getLocalTrackAudioLevel('x'), isNull);
       expect(await h.client.getStatistics(), isEmpty);
       await expectLater(h.client.createDataChannels(), throwsStateError);
+      await settle();
+      expect(h.events, isEmpty);
     });
   });
 

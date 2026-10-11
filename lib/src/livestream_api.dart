@@ -43,14 +43,20 @@ abstract interface class ReceiveLivestreamResult {
 /// Publishes the first video and first audio track of [stream] to the WHIP
 /// endpoint [url]. Throws `ArgumentError` when [stream] has no tracks and
 /// `LivestreamException` on HTTP errors.
-///
-/// [rtcAdapter] and [httpClient] exist for tests.
 Future<PublishLivestreamResult> publishLivestream(
   MediaStream stream, {
   required Uri url,
   required String token,
-  @visibleForTesting RtcAdapter? rtcAdapter,
-  @visibleForTesting http.Client? httpClient,
+}) => publishLivestreamWith(stream, url: url, token: token);
+
+/// [publishLivestream] on a custom adapter and HTTP client (tests only).
+@internal
+Future<PublishLivestreamResult> publishLivestreamWith(
+  MediaStream stream, {
+  required Uri url,
+  required String token,
+  RtcAdapter? rtcAdapter,
+  http.Client? httpClient,
 }) async {
   final publication = await publishWhip(
     adapter: rtcAdapter ?? const FlutterWebrtcAdapter(),
@@ -64,13 +70,18 @@ Future<PublishLivestreamResult> publishLivestream(
 
 /// Plays the livestream at the WHEP endpoint [url]; completes when the first
 /// remote stream arrives. Throws `LivestreamException` on HTTP errors.
-///
-/// [rtcAdapter] and [httpClient] exist for tests.
 Future<ReceiveLivestreamResult> receiveLivestream({
   required Uri url,
   String? token,
-  @visibleForTesting RtcAdapter? rtcAdapter,
-  @visibleForTesting http.Client? httpClient,
+}) => receiveLivestreamWith(url: url, token: token);
+
+/// [receiveLivestream] on a custom adapter and HTTP client (tests only).
+@internal
+Future<ReceiveLivestreamResult> receiveLivestreamWith({
+  required Uri url,
+  String? token,
+  RtcAdapter? rtcAdapter,
+  http.Client? httpClient,
 }) async {
   final playback = await receiveWhep(
     adapter: rtcAdapter ?? const FlutterWebrtcAdapter(),

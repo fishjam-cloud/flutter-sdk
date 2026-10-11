@@ -24,7 +24,7 @@ class ClientHarness {
   /// Creates the client; nothing is connected yet.
   ClientHarness({ReconnectConfig reconnect = const ReconnectConfig()})
     : rtc = FakeRtcAdapter() {
-    client = FishjamClient(
+    client = FishjamClient.internal(
       reconnect: reconnect,
       rtcAdapter: rtc,
       transportFactory: transports.call,
