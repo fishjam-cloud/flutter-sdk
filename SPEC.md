@@ -164,16 +164,18 @@ States: `idle`, `reconnecting`, `failed`.
 |---|---|---|---|
 | idle (joined) | retryable loss: retryable close, socket error, pong timeout, peer connection `failed`, ICE `failed` | snapshot local peer metadata (`peer` part) and local tracks; emit `ReconnectionStarted`; schedule attempt 1 | reconnecting |
 | reconnecting | attempt timer fires | tear down old session silently (no `Disconnected`); start a new session with the snapshot metadata | reconnecting |
-| reconnecting | retryable loss in the new session before `connected` | schedule next attempt if attempts remain | reconnecting |
+| reconnecting | retryable loss in the new session before `connected` (including a new session that cannot be started at all) | schedule next attempt if attempts remain | reconnecting |
 | reconnecting | retryable loss, no attempts left | clear queue; emit `ReconnectionFailed`, then `Disconnected(DisconnectReason.reconnectionFailed)` | failed |
 | reconnecting | terminal close (auth/join/session ended/protocol) | cancel timer; clear queue; emit the matching error event and `Disconnected` | failed |
-| reconnecting | `connected` | emit `Joined`; if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended tracks); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
+| reconnecting | `connected` | emit `Joined`; if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks); emit `LocalTrackRemoved(oldTrackId)` for every snapshotted track that is not re-added (ended, muted, or its re-add failed); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
 | any | `leave()` | cancel timer; clear queue | idle |
 
 - Delay of attempt `n` (1-based) is `initialDelay + (n - 1) * delay`.
 - Only one attempt timer exists at a time; triggers while a timer is pending are ignored.
 - Failures before the first `Joined` of a `connect()` call never start reconnection ([§3.2](#32-connect)).
 - A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it.
+- A **muted** track (no media track) is not re-added: there is nothing to publish. The app is told with
+  `LocalTrackRemoved` and adds the track again when it unmutes.
 
 ## 7. Media event processing
 
