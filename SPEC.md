@@ -116,7 +116,7 @@ idle ──connect()──▶ connecting ──authenticated──▶ authentica
 ### 3.4 Server-initiated end
 
 - `endpointRemoved` whose `endpointId` is the local peer: tear down as in §3.3 steps 2–4 (no `disconnect`
-  is sent), emit `Disconnected(DisconnectReason.removedByServer)`.
+  is sent), emit `Disconnected(DisconnectReason.peerRemoved)`.
 - `serverMediaEvent.error{message}`: emit `ServerError(message)`, then behave as `leave()` but emit
   `Disconnected(DisconnectReason.serverError)`.
 - Socket close: classified by [§4](#4-close-reasons).
@@ -128,13 +128,16 @@ The close reason string is normalized with `trim().toLowerCase()` before matchin
 | Normalized reason | Class | Effect |
 |---|---|---|
 | `missing token`, `invalid token`, `expired token`, `room not found`, `peer not found` | **auth error** | emit `AuthFailed(reason)`, terminal |
-| `reached peers limit`, `node not found`, `invalid sdk version` | **join error** | emit `JoinFailed(reason)`, terminal |
-| `peer removed`, `room stopped`, `new client connected as this peer` | **session ended** | terminal, no error event |
+| `reached peers limit`, `node not found`, `invalid sdk version` | **join error** | emit `JoinFailed(reason)`, terminal (`node not found` is terminal even though the server sends it with code 1011, as in the web SDK) |
+| `peer removed`, `room stopped`, `new client connected as this peer` | **session ended** | terminal, no error event; `Disconnected(peerRemoved / roomStopped / replacedByNewClient)` |
 | `unauthenticated`, `malformed protobuf` | **protocol error** | terminal, logged as error (indicates an SDK bug) |
 | anything else (including empty reason, abnormal closure, pong timeout, network loss) | **retryable** | reconnect if joined and enabled, else terminal |
 
-A terminal close emits `Disconnected(reason)` with the matching `DisconnectReason`. `room not found` is an auth
-error only (it is not reported twice).
+A terminal close emits exactly one `Disconnected(reason)`; there is no separate "session ended" event. The
+`DisconnectReason` values are: `left` (§3.3), `peerRemoved`, `roomStopped`, `replacedByNewClient`, `serverError`
+(§3.4), `authError`, `joinError`, `protocolError`, `connectionLost` (retryable loss with reconnection disabled
+or before the first `Joined`), `reconnectionFailed` (§6). `room not found` is an auth error only (it is not
+reported twice).
 
 ## 5. Outgoing message queue
 
@@ -518,6 +521,18 @@ Plain HTTP, no Fishjam socket.
 
 When `authenticated.roomType` is `ROOM_TYPE_AUDIO_ONLY`, `addTrack` with a video track throws
 `TrackTypeError` synchronously and nothing is sent.
+
+## 20a. Public types and the WebRTC boundary
+
+- The public API uses `flutter_webrtc` types: `addTrack(MediaStreamTrack, …)`,
+  `replaceTrack(trackId, MediaStreamTrack?)`, `getStatistics([MediaStreamTrack?])`, and the `track` / `stream`
+  getters of `LocalTrackContext`, `RemoteTrackContext` and `LocalTrackReplaced` return `MediaStreamTrack?` /
+  `MediaStream?`, ready for `RTCVideoView`. Livestream functions take and return `MediaStream`.
+- Internally every module works with the `RtcMediaTrack` / `RtcMediaStream` seam. Conversion happens only at
+  the boundary (facade and public models) with `wrapNativeTrack` / `wrapNativeStream` and `nativeTrackOf` /
+  `nativeStreamOf` from the adapter. Contexts store the seam values (`rtcTrack`, `rtcStream`, marked
+  `@internal`); a context built from test fakes returns `null` from the native getters but keeps its state
+  (`isReady`, `isMuted`).
 
 ## 21. Logging
 

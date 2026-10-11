@@ -22,7 +22,7 @@ given. Behavioral differences are listed in [SPEC §22](../SPEC.md#22-deviations
 | `leave()` | `leave()` | sends `disconnect`, then tears down (D1) |
 | `disconnect()` | `leave()` | one method: leaving always tears down |
 | `handleSdkDeprecation(...)` | internal | logged (SPEC §3.2) |
-| `getStatistics(selector?)` | `getStatistics([track])` → `List<RtcStats>` | |
+| `getStatistics(selector?)` | `getStatistics([MediaStreamTrack? track])` → `List<RtcStats>` | |
 | `getBandwidthEstimation()` | dropped | the server never sends an estimation |
 
 ## Room state
@@ -38,8 +38,8 @@ given. Behavioral differences are listed in [SPEC §22](../SPEC.md#22-deviations
 
 | Web SDK | Dart | Notes |
 |---|---|---|
-| `addTrack(track, metadata?, simulcastConfig?, maxBandwidth?)` | `addTrack(track, metadata:, simulcastConfig:, maxBandwidth:)` → `Future<String>` | `track` is an `RtcMediaTrack` (wrap a `flutter_webrtc` track with `FlutterWebrtcMediaTrack`) |
-| `replaceTrack(trackId, track \| null)` | `replaceTrack(trackId, track?)` | `null` mutes (SPEC §11.3) |
+| `addTrack(track, metadata?, simulcastConfig?, maxBandwidth?)` | `addTrack(MediaStreamTrack track, metadata:, simulcastConfig:, maxBandwidth:)` → `Future<String>` | `flutter_webrtc` track, as returned by `navigator.mediaDevices.getUserMedia` |
+| `replaceTrack(trackId, track \| null)` | `replaceTrack(trackId, MediaStreamTrack? track)` | `null` mutes (SPEC §11.3) |
 | `removeTrack(trackId)` | `removeTrack(trackId)` | |
 | `setTrackBandwidth(trackId, number \| Map)` → `Promise<boolean>` | `setTrackBandwidth(trackId, BandwidthLimit)` → `Future<void>` | `BandwidthLimit.single(kbps)` / `.simulcast({...})` |
 | `setEncodingBandwidth(trackId, rid, kbps)` → `Promise<boolean>` | `setEncodingBandwidth(trackId, Variant, kbps)` → `Future<void>` | |
@@ -68,8 +68,8 @@ given. Behavioral differences are listed in [SPEC §22](../SPEC.md#22-deviations
 
 | Web SDK | Dart | Notes |
 |---|---|---|
-| `publishLivestream(stream, url, token, callbacks?)` | `publishLivestream(adapter:, stream:, url:, token:)` | connection state is a stream on the result |
-| `receiveLivestream(url, token?, callbacks?)` | `receiveLivestream(adapter:, url:, token:)` | |
+| `publishLivestream(stream, url, token, callbacks?)` | `publishLivestream(MediaStream stream, url:, token:)` | connection state is a stream on the result |
+| `receiveLivestream(url, token?, callbacks?)` | `receiveLivestream(url:, token:)` | `result.stream` is a `MediaStream` |
 | `PublishLivestreamResult.stopPublishing()` / `getStatistics()` | same names | |
 | `ReceiveLivestreamResult.stream` / `stop()` / `getStatistics()` | same names | |
 | `LivestreamError` (string enum, thrown) | `LivestreamException(LivestreamError)` | |
@@ -100,6 +100,7 @@ given. Behavioral differences are listed in [SPEC §22](../SPEC.md#22-deviations
 | `TrackMetadata` | `TrackMetadata` (`type: TrackType`, `paused`, `displayName`) |
 | `FishjamTrackContext` / `TrackContext` | `RemoteTrackContext`, `LocalTrackContext` (sealed `TrackContext`) |
 | `TrackContext.endpoint` | `RemoteTrackContext.endpointId` |
+| `TrackContext.track` / `.stream` | `track` → `MediaStreamTrack?`, `stream` → `MediaStream?` (`flutter_webrtc` types) |
 | `TrackContext.encodingReason` | kept, always `null` (the server does not report one) |
 | `VadStatus` | `VadStatus` |
 | `EncodingReason` | `EncodingReason` |
@@ -116,7 +117,7 @@ given. Behavioral differences are listed in [SPEC §22](../SPEC.md#22-deviations
 | `connectionStarted` | dropped | the app called `connect()`; see `status` |
 | `socketOpen` | dropped | internal |
 | `socketError` | dropped | handled as a connection loss (SPEC §4, §6) |
-| `socketClose` | `Disconnected(reason, closeCode, closeReason)` or `ReconnectionStarted` | |
+| `socketClose` | `Disconnected(reason, closeCode, closeReason)` or `ReconnectionStarted` | typed `DisconnectReason`: `peerRemoved`, `roomStopped`, `replacedByNewClient`, `authError`, `joinError`, `protocolError`, … |
 | `authSuccess` | `AuthSucceeded(roomType)` | |
 | `authError` | `AuthFailed(reason)` | |
 | `joined` | `Joined(peerId, peers, components)` | |
