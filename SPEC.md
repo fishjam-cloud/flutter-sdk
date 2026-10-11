@@ -281,9 +281,7 @@ Built **after** `setLocalDescription` (so new transceivers have mids):
 - `midToTrackId`: union of
   1. every transceiver with a non-null `mid` whose sender has a track → the local track owning that media
      track (matched by media track id), and
-  2. every transceiver with a non-null `mid` whose sender is the sender of a local track (a track muted before
-     its first answer has no media track on its sender), and
-  3. every local track that already has a mid from a previous answer (keeps muted tracks, whose sender has no
+  2. every local track that already has a mid from a previous answer (keeps muted tracks, whose sender has no
      media track, mapped).
   A transceiver whose sender track belongs to no local track is skipped and logged (never throws).
 
@@ -332,7 +330,8 @@ Completes after the answer; emits `LocalTrackRemoved(trackId)`. Unknown id → `
 
 Then `sender.replaceTrack(newTrack)`. On failure the previous track is restored, the opposite mute/unmute
 event is emitted and the call fails with the sender's error. On success emit `LocalTrackReplaced(trackId, track)`.
-Unknown id → `ArgumentError`. Before the track has a sender, only the stored track changes (events as above).
+Unknown id, or a media track already published by another local track (same rule as §11.1) → `ArgumentError`,
+nothing emitted. Before the track has a sender, only the stored track changes (events as above).
 
 ### 11.4 Encodings (sender variants)
 
@@ -402,7 +401,7 @@ Limits are given in kbps (×1024 to get bps).
 ### 13.4 Audio
 
 Audio tracks are added without a limit (`0`). `setTrackBandwidth` on an audio track applies the given number
-as is; a map → `ArgumentError`. `setEncodingBandwidth` on audio applies the number as is.
+as is; a map → `ArgumentError`. `setEncodingBandwidth` on audio is an `ArgumentError` (audio has no layers).
 
 ### 13.5 Reported bitrates
 
