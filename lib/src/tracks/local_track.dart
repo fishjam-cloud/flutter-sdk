@@ -243,6 +243,33 @@ class LocalTrack {
   }
 }
 
+/// A new [LocalTrack] for [track]. Video limits are resolved against the
+/// caps (throwing [ArgumentError] for an invalid one, before anything is
+/// registered); audio tracks are added without a limit.
+LocalTrack newLocalTrack({
+  required String trackId,
+  required RtcMediaTrack track,
+  required RtcMediaStream? stream,
+  required TrackMetadata? metadata,
+  required SimulcastConfig simulcastConfig,
+  required BandwidthLimit maxBandwidth,
+  required FishjamLogger logger,
+}) => LocalTrack(
+  trackId: trackId,
+  kind: track.kind,
+  track: track,
+  stream: stream,
+  metadata: metadata,
+  simulcastConfig: simulcastConfig,
+  maxBandwidth: track.kind == MediaKind.video
+      ? resolveVideoBandwidth(
+          maxBandwidth,
+          simulcast: simulcastConfig.enabled,
+          logger: logger,
+        )
+      : BandwidthLimit.unlimited,
+);
+
 /// Result of [LocalTrack.replaceTrack].
 enum ReplaceAction { mute, unmute, replace }
 

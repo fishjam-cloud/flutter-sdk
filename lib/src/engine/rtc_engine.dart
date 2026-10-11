@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fishjam_client/src/engine/command_queue.dart';
 import 'package:fishjam_client/src/engine/negotiation_state.dart';
+import 'package:fishjam_client/src/engine/receive_transceivers.dart';
 import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/models/endpoint.dart';
 import 'package:fishjam_client/src/models/events.dart';
@@ -14,7 +15,6 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/server/server.pb.d
 import 'package:fishjam_client/src/proto/fishjam/media_events/shared.pb.dart'
     as shared;
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
-import 'package:fishjam_client/src/tracks/bandwidth.dart';
 import 'package:fishjam_client/src/tracks/local_track.dart';
 import 'package:fishjam_client/src/tracks/local_track_registry.dart';
 import 'package:fishjam_client/src/tracks/remote_track.dart';
@@ -170,7 +170,7 @@ class RtcEngine {
             }
             final ownStream = stream == null;
             final trackStream = stream ?? await _streamFor(track, metadata);
-            final local = _newLocalTrack(
+            final local = newLocalTrack(
               trackId: localTracks.newTrackId(),
               track: track,
               stream: trackStream,
@@ -476,7 +476,7 @@ class RtcEngine {
     }
     try {
       final pc = await _ensurePeerConnection();
-      await _syncReceiveTransceivers(pc, offerData.tracksTypes);
+      await syncReceiveTransceivers(pc, offerData.tracksTypes);
       await _commands.drainBatch();
       final offer = await pc.createOffer().timeout(nativeCallTimeout);
       // Native stacks emit candidates during setLocalDescription, before
@@ -568,46 +568,6 @@ class RtcEngine {
       ),
     );
     _emit(LocalTrackMetadataChanged(track.trackId, track.metadata));
-  }
-
-  /// Makes the live receive transceivers per kind match the server's
-  /// numbers.
-  Future<void> _syncReceiveTransceivers(
-    RtcPeerConnection pc,
-    server.MediaEvent_OfferData_TrackTypes types,
-  ) async {
-    final live = <MediaKind, List<RtcRtpTransceiver>>{
-      MediaKind.video: [],
-      MediaKind.audio: [],
-    };
-    for (final t in await pc.getTransceivers()) {
-      if (await t.getDirection() == TransceiverDirection.recvonly &&
-          await t.getCurrentDirection() != TransceiverDirection.stopped) {
-        live[t.receiver.kind]!.add(t);
-      }
-    }
-    final wanted = {MediaKind.video: types.video, MediaKind.audio: types.audio};
-    for (final kind in [MediaKind.video, MediaKind.audio]) {
-      final have = live[kind]!;
-      final excess = have.length - wanted[kind]!;
-      if (excess <= 0) continue;
-      // Transceivers without a mid were never negotiated: stop them first.
-      final candidates = [
-        ...have.where((t) => t.mid == null),
-        ...have.where((t) => t.mid != null),
-      ];
-      for (final t in candidates.take(excess)) {
-        await t.stop();
-      }
-    }
-    for (final kind in [MediaKind.video, MediaKind.audio]) {
-      for (var i = live[kind]!.length; i < wanted[kind]!; i++) {
-        await pc.addTransceiverOfKind(
-          kind,
-          const TransceiverInit(direction: TransceiverDirection.recvonly),
-        );
-      }
-    }
   }
 
   /// Runs on the executor.
@@ -766,30 +726,3 @@ class RtcEngine {
     _sendMediaEvent(event);
   }
 }
-
-/// Video limits are resolved against the caps (throwing [ArgumentError] for
-/// an invalid one, before anything is registered); audio tracks are added
-/// without a limit.
-LocalTrack _newLocalTrack({
-  required String trackId,
-  required RtcMediaTrack track,
-  required RtcMediaStream? stream,
-  required TrackMetadata? metadata,
-  required SimulcastConfig simulcastConfig,
-  required BandwidthLimit maxBandwidth,
-  required FishjamLogger logger,
-}) => LocalTrack(
-  trackId: trackId,
-  kind: track.kind,
-  track: track,
-  stream: stream,
-  metadata: metadata,
-  simulcastConfig: simulcastConfig,
-  maxBandwidth: track.kind == MediaKind.video
-      ? resolveVideoBandwidth(
-          maxBandwidth,
-          simulcast: simulcastConfig.enabled,
-          logger: logger,
-        )
-      : BandwidthLimit.unlimited,
-);
