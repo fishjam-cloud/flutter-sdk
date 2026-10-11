@@ -40,6 +40,15 @@ typedef LocalTrackFactory = LocalTrack Function({
   required BandwidthLimit maxBandwidth,
 });
 
+/// How the server ended the session through a media event (SPEC §3.4).
+enum EngineEnd {
+  /// A server `error` media event.
+  serverError,
+
+  /// `endpointRemoved` for the local peer.
+  localPeerRemoved,
+}
+
 /// One session's media engine. A reconnection creates a new engine.
 ///
 /// Media events and commands run on one [SerialExecutor], so every server
@@ -150,6 +159,13 @@ class RtcEngine {
           }
         }
       });
+
+  /// The terminal outcome announced by the server, recorded synchronously
+  /// while its event is handled (the first one wins). The session owner
+  /// reads it after the events received before a socket close were handled,
+  /// so an error followed by a close is a server error, not a lost socket.
+  EngineEnd? get endedBy => _endedBy;
+  EngineEnd? _endedBy;
 
   /// Completes with `Joined` data once `connected` was handled.
   Future<Joined> get joined => _joined.future;
@@ -389,6 +405,7 @@ class RtcEngine {
         if (_isRemote(event.endpointRemoved.endpointId)) {
           remote.endpointRemoved(event.endpointRemoved);
         } else {
+          _endedBy ??= EngineEnd.localPeerRemoved;
           _notifyOwner(() => onLocalPeerRemoved?.call());
         }
       case server.MediaEvent_Content.tracksAdded:
@@ -415,6 +432,7 @@ class RtcEngine {
       case server.MediaEvent_Content.error:
         final message = event.error.message;
         _emit(ServerError(message));
+        _endedBy ??= EngineEnd.serverError;
         _notifyOwner(() => onServerError?.call(message));
       case server.MediaEvent_Content.offerData:
         await _onOfferData(event.offerData);
@@ -712,16 +730,13 @@ class RtcEngine {
   /// has finished, never from inside a task, so the owner may await engine
   /// work (or close the engine) from it.
   void _notifyOwner(void Function() callback) => unawaited(
-    _executor
-        .run(() async {})
-        .then((_) => Future<void>.delayed(Duration.zero))
-        .then((_) {
-          try {
-            callback();
-          } on Object catch (e, st) {
-            _logger.error('A session callback failed', e, st);
-          }
-        }),
+    _executor.run(() async {}).then((_) {
+      try {
+        callback();
+      } on Object catch (e, st) {
+        _logger.error('A session callback failed', e, st);
+      }
+    }),
   );
 
   /// Remote candidates wait for a remote description (SPEC §8.4).
