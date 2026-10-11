@@ -66,6 +66,7 @@ class RtcEngine {
     required this.localTracks,
     required this.remote,
     LocalTrackFactory? createLocalTrack,
+    this.nativeCallTimeout = const Duration(seconds: 10),
     this.onServerError,
     this.onLocalPeerRemoved,
     this.onConnectionFailed,
@@ -84,6 +85,10 @@ class RtcEngine {
 
   /// Remote endpoints and tracks.
   final RemoteStore remote;
+
+  /// Limit for each native call of a negotiation cycle (`createOffer`,
+  /// `setLocalDescription`, `setRemoteDescription`).
+  final Duration nativeCallTimeout;
 
   /// Called with the message of a server `error` media event.
   final void Function(String message)? onServerError;
@@ -138,7 +143,11 @@ class RtcEngine {
         try {
           await _dispatch(content, event);
         } on Object catch (e, st) {
-          _logger.error('Failed to handle ${content.name}', e, st);
+          if (_closed) {
+            _logger.debug('Stopped handling ${content.name}: closed');
+          } else {
+            _logger.error('Failed to handle ${content.name}', e, st);
+          }
         }
       });
 
@@ -166,40 +175,68 @@ class RtcEngine {
   }) async {
     if (_closed) throw StateError('disconnected');
     if (_localPeerId == null) throw StateError('Not joined yet');
-    late LocalTrack added;
-    await _commands.push(
-      Command(
-        name: 'addTrack',
-        completion: CommandCompletion.afterNegotiation,
-        batchable: true,
-        run: () async {
-          if (localTracks.isPublished(track)) {
-            throw ArgumentError.value(
-              track.id,
-              'track',
-              'The media track is already published',
+    LocalTrack? added;
+    try {
+      await _commands.push(
+        Command(
+          name: 'addTrack',
+          completion: CommandCompletion.afterNegotiation,
+          batchable: true,
+          run: () async {
+            if (localTracks.isPublished(track)) {
+              throw ArgumentError.value(
+                track.id,
+                'track',
+                'The media track is already published',
+              );
+            }
+            final ownStream = stream == null;
+            final trackStream = stream ?? await _streamFor(track, metadata);
+            final local = _createLocalTrack(
+              trackId: localTracks.newTrackId(),
+              track: track,
+              stream: trackStream,
+              metadata: metadata,
+              simulcastConfig: simulcastConfig,
+              maxBandwidth: maxBandwidth,
             );
-          }
-          final ownStream = stream == null;
-          final trackStream = stream ?? await _streamFor(track, metadata);
-          final local = _createLocalTrack(
-            trackId: localTracks.newTrackId(),
-            track: track,
-            stream: trackStream,
-            metadata: metadata,
-            simulcastConfig: simulcastConfig,
-            maxBandwidth: maxBandwidth,
-          );
-          if (ownStream) await trackStream.addTrack(track);
-          localTracks.register(local);
-          added = local;
-          final pc = _pc;
-          if (pc != null) await local.addToConnection(pc);
-        },
-      ),
-    );
-    _emit(LocalTrackAdded(added.toContext()));
-    return added.trackId;
+            if (ownStream) await trackStream.addTrack(track);
+            localTracks.register(local);
+            added = local;
+            final pc = _pc;
+            if (pc != null) await local.addToConnection(pc);
+          },
+        ),
+      );
+    } on Object {
+      // A track whose addTrack failed never stays published.
+      if (added case final failed?) await _discard(failed);
+      rethrow;
+    }
+    final published = added!;
+    _emit(LocalTrackAdded(published.toContext()));
+    return published.trackId;
+  }
+
+  /// Unregisters [track], removes its sender and its media from an
+  /// engine-owned stream.
+  Future<void> _discard(LocalTrack track) async {
+    if (localTracks.tracks.contains(track)) {
+      localTracks.unregister(track.trackId);
+    }
+    if (_closed) return;
+    try {
+      final sender = track.transceiver?.sender;
+      final pc = _pc;
+      if (pc != null && sender != null) await pc.removeTrack(sender);
+      final media = track.track;
+      final stream = track.stream;
+      if (media != null && _ownedStreams.contains(stream)) {
+        await stream!.removeTrack(media);
+      }
+    } on Object catch (e, st) {
+      _logger.warn('Failed to remove the sender of a failed track', e, st);
+    }
   }
 
   /// SPEC §11.2.
@@ -243,18 +280,25 @@ class RtcEngine {
 
   /// Runs a batchable negotiating command for the Data module (SPEC §16):
   /// [apply] creates the channels on the peer connection. Completes after
-  /// the answer of the cycle that carried it.
-  Future<void> negotiate(Future<void> Function(RtcPeerConnection pc) apply) =>
-      _commands.push(
-        Command(
-          name: 'negotiate',
-          completion: CommandCompletion.afterNegotiation,
-          batchable: true,
-          run: () async {
-            await apply(await _ensurePeerConnection());
-          },
-        ),
-      );
+  /// the answer of the cycle that carried it. Fails with
+  /// `StateError('not connected')` before `connected`.
+  Future<void> negotiate(
+    Future<void> Function(RtcPeerConnection pc) apply,
+  ) async {
+    if (!_closed && _localPeerId == null) {
+      throw StateError('not connected');
+    }
+    await _commands.push(
+      Command(
+        name: 'negotiate',
+        completion: CommandCompletion.afterNegotiation,
+        batchable: true,
+        run: () async {
+          await apply(await _ensurePeerConnection());
+        },
+      ),
+    );
+  }
 
   /// SPEC §11.6.
   void updatePeerMetadata(Object? metadata) {
@@ -275,8 +319,8 @@ class RtcEngine {
     final track = localTracks.byId(trackId)..metadata = metadata;
     switch (track.negotiationStatus) {
       case TrackNegotiationStatus.pending:
-        // The coming sdpOffer carries it.
-        _emit(LocalTrackMetadataChanged(trackId, metadata));
+        // The coming sdpOffer carries it; LocalTrackAdded reports it.
+        break;
       case TrackNegotiationStatus.offered:
         track.pendingMetadataUpdate = true;
       case TrackNegotiationStatus.negotiated:
@@ -289,7 +333,9 @@ class RtcEngine {
       _send(peer.MediaEvent(disconnect: peer.MediaEvent_Disconnect()));
 
   /// Fails pending commands, closes the peer connection, cancels
-  /// subscriptions. Emits nothing.
+  /// subscriptions, releases the streams the engine created. Emits
+  /// nothing; failures of work still in flight are treated as
+  /// cancellation.
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
@@ -302,6 +348,19 @@ class RtcEngine {
       await s.cancel();
     }
     await _pc?.close();
+    for (final stream in _ownedStreams) {
+      try {
+        // The media tracks belong to the app: take them out first.
+        for (final track in List.of(stream.tracks)) {
+          await stream.removeTrack(track);
+        }
+        await stream.dispose();
+      } on Object catch (e, st) {
+        _logger.warn('Failed to release a local stream', e, st);
+      }
+    }
+    _ownedStreams.clear();
+    _groupStreams.clear();
   }
 
   // ------------------------------------------------------------- dispatch
@@ -330,7 +389,7 @@ class RtcEngine {
         if (_isRemote(event.endpointRemoved.endpointId)) {
           remote.endpointRemoved(event.endpointRemoved);
         } else {
-          onLocalPeerRemoved?.call();
+          _notifyOwner(() => onLocalPeerRemoved?.call());
         }
       case server.MediaEvent_Content.tracksAdded:
         if (_isRemote(event.tracksAdded.endpointId)) {
@@ -356,7 +415,7 @@ class RtcEngine {
       case server.MediaEvent_Content.error:
         final message = event.error.message;
         _emit(ServerError(message));
-        onServerError?.call(message);
+        _notifyOwner(() => onServerError?.call(message));
       case server.MediaEvent_Content.offerData:
         await _onOfferData(event.offerData);
       case server.MediaEvent_Content.sdpAnswer:
@@ -444,8 +503,8 @@ class RtcEngine {
       final pc = await _ensurePeerConnection();
       await _syncReceiveTransceivers(pc, offerData.tracksTypes);
       await _commands.drainBatch();
-      final offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+      final offer = await pc.createOffer().timeout(nativeCallTimeout);
+      await pc.setLocalDescription(offer).timeout(nativeCallTimeout);
       // Transceivers are snapshots: re-read them to see the new mids.
       final mids = await localTracks.midToTrackId(await pc.getTransceivers());
       if (_closed) return;
@@ -478,9 +537,11 @@ class RtcEngine {
     localTracks.applyAnswerMids(mids);
     remote.applyAnswerMids(mids);
     try {
-      await pc.setRemoteDescription(
-        SessionDescription(type: SdpType.answer, sdp: answer.sdp),
-      );
+      await pc
+          .setRemoteDescription(
+            SessionDescription(type: SdpType.answer, sdp: answer.sdp),
+          )
+          .timeout(nativeCallTimeout);
     } on Object catch (e, st) {
       _abortCycle('Failed to apply the answer', e, st);
       return;
@@ -501,13 +562,20 @@ class RtcEngine {
     _perform(_negotiation.handle(NegotiationInput.answerApplied));
   }
 
-  /// A cycle cannot complete: fail its commands and go back to idle so
-  /// later commands can run.
+  /// A cycle cannot complete (SPEC §8.2): the server waits for an offer
+  /// that will not come, or the connection's descriptions are
+  /// inconsistent. Fail the cycle's commands and report a connection
+  /// failure so the session owner reconnects. After close it is a
+  /// cancellation.
   void _abortCycle(String message, Object error, StackTrace stackTrace) {
+    if (_closed) {
+      _logger.debug('$message: cancelled by close');
+      return;
+    }
     _logger.error(message, error, stackTrace);
     _commands.failCycle(error);
     _negotiation.reset();
-    _commands.pump();
+    _connectionFailed('$message: $error');
   }
 
   void _sendTrackMetadata(LocalTrack track) {
@@ -637,8 +705,24 @@ class RtcEngine {
     if (_failed || _closed) return;
     _failed = true;
     _emit(ConnectionError(message));
-    onConnectionFailed?.call(message);
+    _notifyOwner(() => onConnectionFailed?.call(message));
   }
+
+  /// Runs an owner callback once every task queued on the executor so far
+  /// has finished, never from inside a task, so the owner may await engine
+  /// work (or close the engine) from it.
+  void _notifyOwner(void Function() callback) => unawaited(
+    _executor
+        .run(() async {})
+        .then((_) => Future<void>.delayed(Duration.zero))
+        .then((_) {
+          try {
+            callback();
+          } on Object catch (e, st) {
+            _logger.error('A session callback failed', e, st);
+          }
+        }),
+  );
 
   /// Remote candidates wait for a remote description (SPEC §8.4).
   Future<void> _onRemoteCandidate(shared.Candidate c) async {

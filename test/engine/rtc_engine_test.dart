@@ -258,6 +258,7 @@ void main() {
           ),
         ),
       );
+      await settle();
       expect(h.localPeerRemovals, 1);
       expect(h.remote.calls, isNot(contains('endpointRemoved')));
     });
@@ -268,6 +269,7 @@ void main() {
         server.MediaEvent(error: server.MediaEvent_Error(message: 'boom')),
       );
       expect(h.events.whereType<ServerError>().single.message, 'boom');
+      await settle();
       expect(h.serverErrors, ['boom']);
     });
 
@@ -381,8 +383,8 @@ void main() {
       expect(track.mid, '0');
     });
 
-    test('a failing createOffer fails the commands of the cycle and lets '
-        'the next command run', () async {
+    test('a failing createOffer fails the cycle as a connection failure and '
+        'drops the tracks it carried (SPEC §8.2)', () async {
       final (h, logs) = await _joined();
       final first = _Outcome(
         h.engine.addTrack(FakeMediaTrack.video(), metadata: _camera),
@@ -393,24 +395,49 @@ void main() {
       await h.offerData();
       expect(first.error, isA<StateError>());
       expect(logs, contains(startsWith('error')));
+      expect(h.events.whereType<ConnectionError>(), hasLength(1));
+      expect(h.connectionFailures, hasLength(1));
+      expect(h.localTracks.tracks, isEmpty);
+      expect(h.pc.callsOf('removeTrack'), hasLength(1));
+    });
 
-      unawaited(h.engine.addTrack(FakeMediaTrack.audio()));
+    test('a failing setRemoteDescription fails the cycle as a connection '
+        'failure and drops the tracks it carried', () async {
+      final (h, _) = await _joined();
+      final added = _Outcome(
+        h.engine.addTrack(FakeMediaTrack.video(), metadata: _camera),
+      );
       await settle();
-      expect(h.sentOf(_C.renegotiateTracks), hasLength(2));
+      await h.offerData();
+      h.pc.failNext('setRemoteDescription', StateError('bad answer'));
+      await h.answer(h.lastOffer.midToTrackId);
+      expect(added.error, isA<StateError>());
+      expect(h.events.whereType<ConnectionError>(), hasLength(1));
+      expect(h.connectionFailures, hasLength(1));
+      expect(h.localTracks.tracks, isEmpty);
+      expect(h.pc.callsOf('removeTrack'), hasLength(1));
     });
 
     test(
-      'a failing setRemoteDescription fails the commands of the cycle',
+      'a native call that never completes times out and fails the cycle',
       () async {
-        final (h, _) = await _joined();
+        final rtc = _GatedRtcAdapter();
+        final h = EngineHarness(
+          rtc: rtc,
+          nativeCallTimeout: const Duration(milliseconds: 20),
+        );
+        await h.join();
         final added = _Outcome(
           h.engine.addTrack(FakeMediaTrack.video(), metadata: _camera),
         );
         await settle();
+        rtc.offerGate = Completer<void>();
         await h.offerData();
-        h.pc.failNext('setRemoteDescription', StateError('bad answer'));
-        await h.answer(h.lastOffer.midToTrackId);
-        expect(added.error, isA<StateError>());
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        await settle();
+        expect(added.error, isA<TimeoutException>());
+        expect(h.events.whereType<ConnectionError>(), hasLength(1));
+        expect(h.sentOf(_C.sdpOffer), isEmpty);
       },
     );
 
@@ -748,6 +775,21 @@ void main() {
   });
 
   group('negotiate (data channels, SPEC §16)', () {
+    test('fails before connected without creating a connection', () async {
+      final h = EngineHarness();
+      await expectLater(
+        h.engine.negotiate((pc) async {}),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            'not connected',
+          ),
+        ),
+      );
+      expect(h.rtc.peerConnections, isEmpty);
+    });
+
     test('creates the connection, applies, renegotiates and completes after '
         'the answer', () async {
       final (h, _) = await _joined();
@@ -793,7 +835,8 @@ void main() {
       expect(h.events.whereType<LocalPeerMetadataChanged>(), hasLength(1));
     });
 
-    test('updateTrackMetadata on a pending track only stores it', () async {
+    test('updateTrackMetadata on a pending track only stores it; the offer '
+        'carries it and no event is emitted', () async {
       final (h, _) = await _joined();
       unawaited(h.engine.addTrack(FakeMediaTrack.video(), metadata: _camera));
       await settle();
@@ -801,7 +844,7 @@ void main() {
       h.engine.updateTrackMetadata(id, _microphone);
       expect(h.sentOf(_C.updateTrackMetadata), isEmpty);
       expect(h.localTracks.tracks.single.metadata, _microphone);
-      expect(h.events.whereType<LocalTrackMetadataChanged>(), hasLength(1));
+      expect(h.events.whereType<LocalTrackMetadataChanged>(), isEmpty);
 
       await h.offerData();
       expect(
@@ -824,7 +867,84 @@ void main() {
     );
   });
 
+  group('owner callbacks', () {
+    test('onServerError runs after the event was handled and may await '
+        'engine work', () async {
+      final (h, _) = await _joined();
+      final order = <String>[];
+      h.onServerErrorHook = (_) async {
+        order.add('callback');
+        await h.engine.ensurePeerConnection();
+        order.add('awaited');
+      };
+      await h.engine.handleServerEvent(
+        server.MediaEvent(error: server.MediaEvent_Error(message: 'boom')),
+      );
+      order.add('handled');
+      await settle();
+      expect(order, ['handled', 'callback', 'awaited']);
+    });
+
+    test('onLocalPeerRemoved runs after the event was handled', () async {
+      final (h, _) = await _joined();
+      final order = <String>[];
+      h.onLocalPeerRemovedHook = () => order.add('callback');
+      await h.engine.handleServerEvent(
+        server.MediaEvent(
+          endpointRemoved: server.MediaEvent_EndpointRemoved(
+            endpointId: 'local-peer',
+          ),
+        ),
+      );
+      order.add('handled');
+      await settle();
+      expect(order, ['handled', 'callback']);
+    });
+  });
+
   group('teardown (SPEC §3.3)', () {
+    test(
+      "close disposes the streams the engine created, not the caller's",
+      () async {
+        final (h, _) = await _joined();
+        final own = FakeMediaStream('own');
+        h.engine.addTrack(FakeMediaTrack.video(), metadata: _camera).ignore();
+        h.engine
+            .addTrack(FakeMediaTrack.video(), metadata: _camera, stream: own)
+            .ignore();
+        await settle();
+        final created = h.rtc.localStreams.single;
+        await h.engine.close();
+        expect(created.disposed, isTrue);
+        expect(created.tracks, isEmpty);
+        expect(own.disposed, isFalse);
+        expect(own.tracks, isEmpty);
+      },
+    );
+
+    test('close during an in-flight createOffer is quiet', () async {
+      final rtc = _GatedRtcAdapter();
+      final logs = <String>[];
+      final h = EngineHarness(
+        rtc: rtc,
+        logger: FishjamLogger(
+          enabled: true,
+          sink: (level, message, {error, stackTrace}) =>
+              logs.add('${level.name} $message'),
+        ),
+      );
+      await h.join();
+      final gate = rtc.offerGate = Completer<void>();
+      unawaited(h.offerData());
+      await settle();
+      await h.engine.close();
+      gate.completeError(StateError('peer connection closed'));
+      await settle();
+      expect(logs.where((l) => l.startsWith('error')), isEmpty);
+      expect(h.events.whereType<ConnectionError>(), isEmpty);
+      expect(h.connectionFailures, isEmpty);
+    });
+
     test('sendDisconnect sends disconnect', () async {
       final (h, _) = await _joined();
       h.engine.sendDisconnect();
@@ -880,3 +1000,29 @@ server.MediaEvent _offerData() => server.MediaEvent(
     tracksTypes: server.MediaEvent_OfferData_TrackTypes(),
   ),
 );
+
+/// Holds `createOffer` on [offerGate] when it is set.
+class _GatedRtcAdapter extends FakeRtcAdapter {
+  Completer<void>? offerGate;
+
+  @override
+  Future<RtcPeerConnection> createPeerConnection(
+    RtcConfiguration config,
+  ) async {
+    final pc = _GatedPeerConnection(config, this);
+    peerConnections.add(pc);
+    return pc;
+  }
+}
+
+class _GatedPeerConnection extends FakePeerConnection {
+  _GatedPeerConnection(super.configuration, this._adapter);
+
+  final _GatedRtcAdapter _adapter;
+
+  @override
+  Future<SessionDescription> createOffer() async {
+    await _adapter.offerGate?.future;
+    return await super.createOffer();
+  }
+}

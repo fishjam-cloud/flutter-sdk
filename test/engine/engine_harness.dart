@@ -30,11 +30,16 @@ import 'fake_tracks.dart';
 /// One engine plus its fakes.
 class EngineHarness {
   /// Creates the harness; nothing is connected yet.
-  EngineHarness({FishjamLogger? logger})
-    : logger = logger ?? FishjamLogger.disabled() {
+  EngineHarness({
+    FishjamLogger? logger,
+    FakeRtcAdapter? rtc,
+    Duration nativeCallTimeout = const Duration(seconds: 10),
+  }) : logger = logger ?? FishjamLogger.disabled(),
+       rtc = rtc ?? FakeRtcAdapter() {
     remote = FakeRemoteStore(emit: events.add);
     engine = RtcEngine(
-      adapter: rtc,
+      adapter: this.rtc,
+      nativeCallTimeout: nativeCallTimeout,
       logger: this.logger,
       sendMediaEvent: _send,
       emit: events.add,
@@ -43,9 +48,17 @@ class EngineHarness {
       createLocalTrack: fakeLocalTrackFactory,
       onServerError: (message) {
         serverErrors.add(message);
-        unawaited(leave(DisconnectReason.serverError));
+        final hook = onServerErrorHook;
+        if (hook != null) {
+          hook(message);
+        } else {
+          unawaited(leave(DisconnectReason.serverError));
+        }
       },
-      onLocalPeerRemoved: () => localPeerRemovals++,
+      onLocalPeerRemoved: () {
+        localPeerRemovals++;
+        onLocalPeerRemovedHook?.call();
+      },
       onConnectionFailed: connectionFailures.add,
     );
   }
@@ -57,7 +70,13 @@ class EngineHarness {
   final transports = FakeTransportFactory();
 
   /// The WebRTC fake.
-  final rtc = FakeRtcAdapter();
+  final FakeRtcAdapter rtc;
+
+  /// Replaces the default reaction to a server error (leave).
+  void Function(String message)? onServerErrorHook;
+
+  /// Runs when the local peer was removed.
+  void Function()? onLocalPeerRemovedHook;
 
   /// Every event the engine (or this harness) emitted.
   final List<FishjamEvent> events = [];

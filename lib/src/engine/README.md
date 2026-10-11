@@ -10,3 +10,6 @@ Owner: **Engine**. Per-session media engine: serialized media event dispatch, th
 - The audio-only `TrackTypeError` check (SPEC §20) is the caller's: the engine does not know the room type.
 - `negotiate(apply)` (Data) is a batchable command that completes after the answer; waiting for the channels to
   open is the caller's. `ensurePeerConnection()` runs on the executor; do not call it from inside `apply`.
+- The owner callbacks never run inside an engine task: they run after the tasks queued so far finished, so they
+  may await engine work or call `close()`. A failed negotiation cycle (including a native call over
+  `nativeCallTimeout`, default 10 s) reports `onConnectionFailed` (SPEC §8.2).
