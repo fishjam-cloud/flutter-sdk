@@ -82,6 +82,12 @@ class FakeMediaStream implements RtcMediaStream {
 
   @override
   Future<void> removeTrack(RtcMediaTrack track) async => _tracks.remove(track);
+
+  /// Whether [dispose] was called.
+  bool disposed = false;
+
+  @override
+  Future<void> dispose() async => disposed = true;
 }
 
 /// The fake adapter.

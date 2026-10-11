@@ -170,6 +170,10 @@ abstract interface class RtcMediaStream {
 
   /// Removes [track] from the stream.
   Future<void> removeTrack(RtcMediaTrack track);
+
+  /// Releases the stream. Platforms may also release tracks still in it, so
+  /// remove tracks the caller does not own first.
+  Future<void> dispose();
 }
 
 /// An ICE server used by a peer connection.

@@ -92,6 +92,9 @@ final class FlutterWebrtcMediaStream implements RtcMediaStream {
   @override
   Future<void> removeTrack(RtcMediaTrack track) =>
       native.removeTrack(_unwrapTrack(track));
+
+  @override
+  Future<void> dispose() => native.dispose();
 }
 
 /// Wraps an app-provided `flutter_webrtc` track for the internal seam.
