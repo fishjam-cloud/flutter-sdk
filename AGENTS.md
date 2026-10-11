@@ -27,8 +27,8 @@ Run analyze, format and tests before every commit.
 - **Spec first.** Behavior changes start in `SPEC.md` (and the affected fixtures), then tests, then code.
   Cite a section (`SPEC §N`) in a comment only where it explains a rule the reader would otherwise question.
 - **Respect module boundaries** (see [Modules](#modules)). Shared seams (`rtc/rtc_adapter.dart`,
-  `signaling/transport.dart`, `models/`, `wire.dart`, `logger.dart`) change only together with every
-  module that uses them.
+  `rtc/rtc_types.dart`, `signaling/transport.dart`, `models/`, `wire.dart`, `logger.dart`) change only
+  together with every module that uses them.
 - **Comments say what the code cannot.** Document the exported API concisely (behavior, units, errors,
   lifecycle). Elsewhere, comment only the why: protocol and platform quirks, invariants, ordering and
   concurrency rules. No comments that restate a name or signature (`public_member_api_docs` is off for
