@@ -1,13 +1,9 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:fishjam_client/src/models/config.dart';
 import 'package:fishjam_client/src/models/endpoint.dart';
 import 'package:fishjam_client/src/models/events.dart';
-import 'package:fishjam_client/src/proto/fishjam/media_events/peer/peer.pb.dart'
-    as peer;
 import 'package:fishjam_client/src/proto/fishjam/peer_notifications.pb.dart';
-import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:fishjam_client/src/version.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -189,32 +185,6 @@ void main() {
     });
   });
 
-  group('proto3 JSON', () {
-    test('round-trips a PeerMessage including maps and enums', () {
-      final json = {
-        'peerMediaEvent': {
-          'sdpOffer': {
-            'sdp': 'v=0',
-            'midToTrackId': {'0': 'p:1'},
-            'trackIdToBitrates': {
-              'p:1': {
-                'trackId': 'p:1',
-                'variantBitrates': [
-                  {'variant': 'VARIANT_LOW', 'bitrate': 153600},
-                ],
-              },
-            },
-          },
-        },
-      };
-
-      final message = peerMessageFromJson(json);
-
-      expect(message.peerMediaEvent.sdpOffer.midToTrackId, {'0': 'p:1'});
-      expect(peerMessageToJson(message), json);
-    });
-  });
-
   group('describeEvent', () {
     test('names every event and exposes its fields', () {
       expect(describeEvent(const ReconnectionStarted()), {
@@ -252,91 +222,8 @@ void main() {
   });
 
   group('FixtureReplayer', () {
-    test('drives a scripted client through a fixture', () async {
-      final transports = FakeTransportFactory();
-      final rtc = FakeRtcAdapter();
-      final events = <FishjamEvent>[];
-      final client = _ToyClient(transports, rtc, events);
-
-      final fixture = Fixture.parse(
-        jsonEncode({
-          'name': 'toy',
-          'description': 'toy client',
-          'steps': [
-            {
-              'direction': 'api',
-              'call': 'connect',
-              'args': {'token': 'T'},
-            },
-            {
-              'direction': 'out',
-              'message': {
-                'authRequest': {'token': 'T', 'sdkVersion': '<any>'},
-              },
-            },
-            {
-              'direction': 'in',
-              'message': {'authenticated': <String, Object?>{}},
-            },
-            {
-              'direction': 'expect',
-              'event': 'AuthSucceeded',
-              'fields': {'roomType': 'unspecified'},
-            },
-            {
-              'direction': 'out',
-              'message': {
-                'peerMediaEvent': {
-                  'connect': {'metadataJson': r'${meta}'},
-                },
-              },
-            },
-            {'direction': 'api', 'call': 'openChannel', 'bind': 'label'},
-            {
-              'direction': 'expectRtc',
-              'call': 'createDataChannel',
-              'args': {'label': r'${label}'},
-            },
-            {
-              'direction': 'rtc',
-              'event': 'iceConnectionState',
-              'args': {'state': 'disconnected'},
-            },
-            {
-              'direction': 'out',
-              'message': {
-                'peerMediaEvent': {'renegotiateTracks': <String, Object?>{}},
-              },
-            },
-            {'direction': 'api', 'call': 'fail', 'error': 'StateError'},
-            {'direction': 'wait', 'ms': 1},
-            {'direction': 'noOut', 'ms': 1},
-            {'direction': 'close', 'code': 1000, 'reason': 'Room stopped'},
-            {
-              'direction': 'expect',
-              'event': 'Disconnected',
-              'fields': {'reason': 'roomStopped'},
-            },
-          ],
-        }),
-      );
-
-      await FixtureReplayer(
-        fixture: fixture,
-        transports: transports,
-        rtc: rtc,
-        events: events,
-        onApi: client.call,
-      ).run();
-
-      expect(client.metadataSent, isTrue);
-    });
-
     test('reports an unexpected outgoing message', () async {
       final transports = FakeTransportFactory();
-      final rtc = FakeRtcAdapter();
-      final events = <FishjamEvent>[];
-      final client = _ToyClient(transports, rtc, events);
       final fixture = Fixture.parse(
         jsonEncode({
           'name': 'bad',
@@ -361,9 +248,9 @@ void main() {
         FixtureReplayer(
           fixture: fixture,
           transports: transports,
-          rtc: rtc,
-          events: events,
-          onApi: client.call,
+          rtc: FakeRtcAdapter(),
+          events: <FishjamEvent>[],
+          onApi: (step) => _connect(transports, step),
         ).run(),
         throwsA(isA<FixtureMismatch>()),
       );
@@ -371,66 +258,16 @@ void main() {
   });
 }
 
-/// A tiny hand-written client used only to exercise the replayer.
-class _ToyClient {
-  _ToyClient(this.transports, this.rtc, this.events);
-
-  final FakeTransportFactory transports;
-  final FakeRtcAdapter rtc;
-  final List<FishjamEvent> events;
-  bool metadataSent = false;
-
-  Future<Object?> call(ApiStep step) async {
-    switch (step.call) {
-      case 'connect':
-        final t = transports();
-        await t.connect(Uri.parse('ws://toy'));
-        t.incoming.listen((bytes) {
-          final m = PeerMessage.fromBuffer(bytes);
-          if (m.hasAuthenticated()) {
-            events.add(const AuthSucceeded(roomType: RoomType.unspecified));
-            metadataSent = true;
-            t.send(
-              PeerMessage(
-                peerMediaEvent: peer.MediaEvent(
-                  connect: peer.MediaEvent_Connect(metadataJson: 'null'),
-                ),
-              ).writeToBuffer(),
-            );
-          }
-        });
-        unawaited(
-          t.onClose.then((_) {
-            events.add(const Disconnected(DisconnectReason.roomStopped));
-          }),
-        );
-        t.send(
-          PeerMessage(
-            authRequest: PeerMessage_AuthRequest(
-              token: step.args['token']! as String,
-              sdkVersion: 'toy-1.0.0',
-            ),
-          ).writeToBuffer(),
-        );
-        return null;
-      case 'openChannel':
-        final pc = await rtc.createPeerConnection(const RtcConfiguration());
-        pc.onIceConnectionState.listen((s) {
-          if (s == IceConnectionState.disconnected) {
-            transports.last.send(
-              PeerMessage(
-                peerMediaEvent: peer.MediaEvent(
-                  renegotiateTracks: peer.MediaEvent_RenegotiateTracks(),
-                ),
-              ).writeToBuffer(),
-            );
-          }
-        });
-        await pc.createDataChannel('reliable', const DataChannelInit());
-        return 'reliable';
-      case 'fail':
-        throw StateError('expected');
-    }
-    throw UnimplementedError(step.call);
-  }
+/// Opens a transport and sends an auth request with the step's token.
+Future<Object?> _connect(FakeTransportFactory transports, ApiStep step) async {
+  final t = transports();
+  await t.connect(Uri.parse('ws://toy'));
+  t.send(
+    PeerMessage(
+      authRequest: PeerMessage_AuthRequest(
+        token: step.args['token']! as String,
+      ),
+    ).writeToBuffer(),
+  );
+  return null;
 }

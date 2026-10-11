@@ -578,6 +578,28 @@ void main() {
       expect(h.client.isReconnecting, isFalse);
     });
 
+    test('a terminal close while reconnecting ends without retrying', () async {
+      h = ClientHarness(reconnect: _fast);
+      await h.join();
+      h.transport.serverClose(code: 1011, reason: 'boom');
+      await _wait(30);
+      expect(h.eventsOf<ReconnectionStarted>(), hasLength(1));
+      expect(h.transports.created, hasLength(2));
+      h.transport.serverClose(reason: 'Expired token');
+      await _wait(100);
+      expect(
+        h.eventsOf<AuthFailed>().single.reason,
+        AuthErrorReason.expiredToken,
+      );
+      expect(
+        h.eventsOf<Disconnected>().single.reason,
+        DisconnectReason.authError,
+      );
+      expect(h.eventsOf<ReconnectionFailed>(), isEmpty);
+      expect(h.transports.created, hasLength(2));
+      expect(h.client.isReconnecting, isFalse);
+    });
+
     test('a session that cannot be created on the last attempt ends with '
         'reconnectionFailed (ReconnectHost.endSession)', () async {
       var failing = false;
