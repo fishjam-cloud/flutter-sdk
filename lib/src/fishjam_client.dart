@@ -1,10 +1,3 @@
-/// The public client facade.
-///
-/// Owner: **Integrator**. It wires Signaling, Engine, Tracks, Data and Stats
-/// together and converts between `flutter_webrtc` types and the internal
-/// seam; it holds no protocol logic of its own.
-library;
-
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -44,11 +37,16 @@ import 'package:meta/meta.dart';
 /// });
 /// await client.connect(url: fishjamUrl, token: peerToken);
 /// ```
+///
+/// Room operations fail with `StateError` before `Joined` and while
+/// reconnecting.
 class FishjamClient {
-  /// Creates a client. Subscribe to [events] before calling [connect].
-  ///
-  /// This facade converts between `flutter_webrtc` types and the internal
-  /// `RtcMediaTrack` seam (`wrapNativeTrack` / `nativeTrackOf`).
+  // The facade wires signaling, the engine, tracks, data channels and stats
+  // together and converts `flutter_webrtc` types at the boundary; it holds
+  // no protocol logic of its own.
+
+  /// Subscribe to [events] before calling [connect]: events are not
+  /// replayed.
   FishjamClient({
     bool debug = false,
     ReconnectConfig reconnect = const ReconnectConfig(),
@@ -79,10 +77,9 @@ class FishjamClient {
     );
   }
 
-  /// Whether SDK logs are emitted (SPEC §21).
+  /// Whether SDK logs are emitted (through `dart:developer`).
   final bool debug;
 
-  /// Reconnection settings (SPEC §6).
   final ReconnectConfig reconnect;
 
   final RtcAdapter _adapter;
@@ -113,20 +110,17 @@ class FishjamClient {
   bool _disposed = false;
 
   /// Remote endpoints the app was told about (in `Joined` and later events)
-  /// by a session that was lost; reported gone before the next `Joined`
-  /// (SPEC §6, D22).
+  /// by a session that was lost; reported gone before the next `Joined`.
   ({List<Peer> peers, List<Component> components})? _staleRemote;
 
-  /// All client events (broadcast).
+  /// All client events (broadcast, not replayed).
   Stream<FishjamEvent> get events => _events.stream;
 
-  /// Current connection status (SPEC §3.1).
   ConnectionStatus get status => _status;
 
-  /// Whether a reconnection is in progress.
   bool get isReconnecting => _reconnect.isReconnecting;
 
-  /// Joins the room (SPEC §3.2). Completes on `Joined`; throws
+  /// Joins the room. Completes on `Joined`; throws
   /// `AuthException`, `JoinException` or `ConnectionException`, and
   /// `ArgumentError` for a [url] that is not ws, wss, http or https
   /// (see `fishjamUrlFromId`).
@@ -151,15 +145,15 @@ class FishjamClient {
     try {
       await _open(session, peerMetadata);
     } on Object {
-      // Reported through `closed`, which settles connect() (SPEC §3.2).
+      // Reported through `closed`, which settles connect().
     }
     return await connecting.future;
   }
 
-  /// Leaves the room gracefully (SPEC §3.3). A no-op when not connected.
+  /// Leaves the room gracefully. A no-op when not connected.
   Future<void> leave() => _leave(DisconnectReason.left);
 
-  /// Publishes [track] (SPEC §11.1); returns its track id. Throws
+  /// Publishes [track]; returns its track id. Throws
   /// `TrackTypeError` for video in an audio-only room.
   Future<String> addTrack(
     MediaStreamTrack track, {
@@ -180,11 +174,10 @@ class FishjamClient {
     );
   }
 
-  /// Unpublishes a track (SPEC §11.2).
   Future<void> removeTrack(String trackId) =>
       _run((s) => s.engine.removeTrack(trackId));
 
-  /// Replaces, mutes (`null`) or unmutes a track's media (SPEC §11.3).
+  /// Replaces, mutes (`null`) or unmutes a track's media.
   Future<void> replaceTrack(String trackId, MediaStreamTrack? track) => _run(
     (s) => s.engine.replaceTrack(
       trackId,
@@ -192,36 +185,34 @@ class FishjamClient {
     ),
   );
 
-  /// Sets a track's bandwidth limit in kbps (SPEC §11.5, §13).
+  /// Sets a track's bandwidth limit in kbps; video limits are clamped to
+  /// the caps.
   Future<void> setTrackBandwidth(String trackId, BandwidthLimit bandwidth) =>
       _run((s) => s.localTracks.setTrackBandwidth(trackId, bandwidth));
 
-  /// Sets one simulcast layer's limit in kbps (SPEC §11.5, §13).
+  /// Sets one simulcast layer's limit in kbps. Throws `ArgumentError` when
+  /// the track has no such layer.
   Future<void> setEncodingBandwidth(
     String trackId,
     Variant variant,
     int kbps,
   ) => _run((s) => s.localTracks.setEncodingBandwidth(trackId, variant, kbps));
 
-  /// Starts sending a simulcast layer (SPEC §11.4).
   Future<void> enableTrackEncoding(String trackId, Variant variant) =>
       _run((s) => s.localTracks.enableTrackEncoding(trackId, variant));
 
-  /// Stops sending a simulcast layer (SPEC §11.4).
   Future<void> disableTrackEncoding(String trackId, Variant variant) =>
       _run((s) => s.localTracks.disableTrackEncoding(trackId, variant));
 
-  /// Asks the server to send [variant] of a remote track (SPEC §14.4).
+  /// Asks the server to send [variant] of a remote track.
   /// Throws `ArgumentError` for an unknown or non-simulcast track, or a
   /// variant the track does not send.
   void setTargetTrackEncoding(String trackId, Variant variant) =>
       _requireAvailable().remote.setTargetEncoding(trackId, variant);
 
-  /// Updates this peer's metadata (SPEC §11.6).
   void updatePeerMetadata(Object? metadata) =>
       _requireAvailable().engine.updatePeerMetadata(metadata);
 
-  /// Updates a local track's metadata (SPEC §11.6).
   void updateTrackMetadata(String trackId, TrackMetadata? metadata) =>
       _requireAvailable().engine.updateTrackMetadata(trackId, metadata);
 
@@ -232,35 +223,32 @@ class FishjamClient {
     return session.localTracks.toLocalPeer();
   }
 
-  /// Other peers by id.
   Map<String, Peer> get remotePeers => {
     for (final p in _session?.remote.peers ?? const <Peer>[]) p.id: p,
   };
 
-  /// Components by id.
   Map<String, Component> get remoteComponents => {
     for (final c in _session?.remote.components ?? const <Component>[]) c.id: c,
   };
 
-  /// Remote tracks by id.
   Map<String, RemoteTrackContext> get remoteTracks =>
       _session?.remote.tracks ?? const {};
 
-  /// Peer connection statistics, optionally for one track.
+  /// Optionally for one track only.
   Future<List<RtcStats>> getStatistics([MediaStreamTrack? track]) async {
     final pc = _session?.engine.peerConnection;
     if (pc == null) return const [];
     return await pc.getStats(track == null ? null : wrapNativeTrack(track));
   }
 
-  /// Audio level (0.0–1.0) of a local audio track (SPEC §18).
+  /// Audio level (0.0–1.0) of a local audio track; `null` when unavailable.
   Future<double?> getLocalTrackAudioLevel(String trackId) async {
     final session = _session;
     if (session == null) return null;
     return await session.localTracks.audioLevel(trackId);
   }
 
-  /// Creates the reliable and lossy data channels (SPEC §16). They belong
+  /// Creates the reliable and lossy data channels. They belong
   /// to the session: after a reconnection, create them again. Fails with
   /// `StateError` (and emits nothing) when not joined or reconnecting.
   Future<void> createDataChannels() {
@@ -269,14 +257,15 @@ class FishjamClient {
     return _dataChannels.createChannels();
   }
 
-  /// Whether both data channels are open.
   bool get dataChannelsReady => _dataChannels.isReady;
 
-  /// Sends [data] to every other peer (SPEC §16).
+  /// Sends [data] to every other peer. Throws `StateError` when the channel
+  /// is not open.
   void publishData(Uint8List data, {required bool reliable}) =>
       _dataChannels.publish(data, reliable: reliable);
 
-  /// Data received from other peers on one channel (SPEC §16).
+  /// Data received from other peers on one channel. May be listened to
+  /// before the channels exist, and survives reconnections.
   Stream<Uint8List> dataStream({required bool reliable}) =>
       _dataChannels.dataStream(reliable: reliable);
 
@@ -290,9 +279,7 @@ class FishjamClient {
     await _events.close();
   }
 
-  // ------------------------------------------------------------ sessions
-
-  /// Creates a session and makes it the current one.
+  /// Makes the new session the current one.
   _Session _newSession() {
     final signaling = SignalingSession(
       transport:
@@ -344,7 +331,7 @@ class FishjamClient {
     return session;
   }
 
-  /// Authenticates [session] and sends `connect` (SPEC §3.2). Throws when
+  /// Authenticates [session] and sends `connect`. Throws when
   /// the socket closes first, which `closed` reports too.
   Future<void> _open(_Session session, Object? peerMetadata) async {
     final auth = await session.signaling.open(url: _url, token: _token);
@@ -373,7 +360,7 @@ class FishjamClient {
   Future<void> _onClosed(_Session session, CloseReason reason) async {
     // Server events received before the close are handled first: an error
     // or the local peer's removal followed by a close ends the session as
-    // announced (SPEC §3.4), not as a lost socket.
+    // announced, not as a lost socket.
     await session.lastEvent;
     if (!_isCurrent(session)) return;
     if (session.engine.endedBy case final end?) {
@@ -381,7 +368,7 @@ class FishjamClient {
       return;
     }
     if (_status != ConnectionStatus.joined && !_reconnect.isReconnecting) {
-      // Before the first `Joined` nothing is retried (SPEC §3.2).
+      // Before the first `Joined` nothing is retried.
       await _finish(
         disconnectedFor(reason),
         error: errorEventFor(reason),
@@ -410,7 +397,7 @@ class FishjamClient {
   void _onLocalPeerRemoved(_Session session) =>
       _endBy(session, EngineEnd.localPeerRemoved);
 
-  /// SPEC §3.4: a server error leaves (sending `disconnect`); the removal of
+  /// A server error leaves (sending `disconnect`); the removal of
   /// the local peer tears down without sending it. Reached from the engine
   /// callback or from the socket close that follows, whichever is first.
   void _endBy(_Session session, EngineEnd end) {
@@ -427,7 +414,6 @@ class FishjamClient {
     });
   }
 
-  /// A retryable loss of the current session (SPEC §6).
   Future<void> _onRetryableLoss(RetryableClose reason) async {
     final session = _session!;
     final snapshot = ReconnectSnapshot(
@@ -435,7 +421,7 @@ class FishjamClient {
       tracks: [for (final t in session.localTracks.tracks) t.toContext()],
     );
     if (_reconnect.onRetryableLoss(reason, snapshot)) {
-      // From here on the lost session reports nothing (SPEC §6).
+      // From here on the lost session reports nothing.
       session.isLost = true;
       if (session.isJoined) {
         _staleRemote = (
@@ -485,8 +471,8 @@ class FishjamClient {
     }
   }
 
-  /// SPEC §3.3 step 2, in this order: data channels, `disconnect` (when
-  /// leaving), peer connection and local streams, socket.
+  /// In this order: data channels, `disconnect` (when leaving), peer
+  /// connection and local streams, socket.
   Future<void> _teardown(
     _Session session, {
     required bool sendDisconnect,
@@ -501,7 +487,7 @@ class FishjamClient {
 
   /// The joined session for an app operation. Throws `StateError` before
   /// `Joined` and from the moment a connection loss starts a reconnection
-  /// until `Reconnected` (SPEC §6).
+  /// until `Reconnected`.
   _Session _requireAvailable() {
     final error = _unavailable();
     if (error != null) throw error;
@@ -532,8 +518,9 @@ class FishjamClient {
   bool _isCurrent(_Session session) =>
       identical(_session, session) && !session.isLost;
 
-  /// D22: before a new session's `Joined`, the remote endpoints of the lost
-  /// one are reported gone: every track, then every endpoint.
+  /// Before a new session's `Joined`, the remote endpoints of the lost one
+  /// are reported gone (every track, then every endpoint), so the new
+  /// `Joined` snapshot is the only source of truth.
   void _reportStaleRemoteGone() {
     final stale = _staleRemote;
     if (stale == null) return;
@@ -564,7 +551,7 @@ class FishjamClient {
   };
 }
 
-/// One socket plus one engine (SPEC §1 "Session").
+/// One socket plus one engine.
 class _Session {
   _Session(this.signaling, this.engine, this.localTracks, this.remote);
 
@@ -598,7 +585,7 @@ class _Host implements ReconnectHost {
     final client = _client;
     final old = client._session;
     // The new session becomes current first, so the old one is torn down
-    // silently (no `Disconnected`, D9) and its late reports are ignored.
+    // silently (no `Disconnected`) and its late reports are ignored.
     final session = client._newSession()..isReconnectAttempt = true;
     if (old != null) {
       // Tracks a previous attempt restored were announced with

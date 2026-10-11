@@ -1,8 +1,5 @@
-/// Public WHIP/WHEP API on `flutter_webrtc` types (SPEC §19).
-///
-/// Owner: **Integrator**. Wraps the internal `livestream/` module
-/// (`publishWhip` / `receiveWhep`, owned by Data & Stats); conversion
-/// between `flutter_webrtc` and the internal seam happens only here.
+/// Public WHIP/WHEP API on `flutter_webrtc` types, wrapping the internal
+/// `livestream/` module.
 library;
 
 import 'package:fishjam_client/src/livestream/whep.dart';
@@ -18,10 +15,8 @@ abstract interface class PublishLivestreamResult {
   /// Stops publishing (HTTP `DELETE`) and closes the connection.
   Future<void> stopPublishing();
 
-  /// Connection statistics.
   Future<List<RtcStats>> getStatistics();
 
-  /// Connection state changes.
   Stream<PeerConnectionState> get connectionState;
 }
 
@@ -33,10 +28,8 @@ abstract interface class ReceiveLivestreamResult {
   /// Stops playback (HTTP `DELETE`) and closes the connection.
   Future<void> stop();
 
-  /// Connection statistics.
   Future<List<RtcStats>> getStatistics();
 
-  /// Connection state changes.
   Stream<PeerConnectionState> get connectionState;
 }
 
