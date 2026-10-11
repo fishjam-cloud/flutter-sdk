@@ -3,13 +3,17 @@
 # running Fishjam server. Prerequisites: example/integration_test/README.md.
 #
 # Usage:
-#   FISHJAM_URL=http://localhost:<port> FISHJAM_MANAGEMENT_TOKEN=<token> \
+#   FISHJAM_ID=<fishjam id> FISHJAM_MANAGEMENT_TOKEN=<token> \
 #     tool/run_integration.sh [simulator UDID]
+#
+# FISHJAM_ID may also be a full server URL (e.g. http://localhost:<port>);
+# FISHJAM_URL is accepted as an alias.
 #
 # Without an argument the first available iPhone simulator is used.
 set -euo pipefail
 
-: "${FISHJAM_URL:?set FISHJAM_URL to the Fishjam server URL}"
+FISHJAM_ID="${FISHJAM_ID:-${FISHJAM_URL:-}}"
+: "${FISHJAM_ID:?set FISHJAM_ID to your Fishjam ID (or a server URL)}"
 : "${FISHJAM_MANAGEMENT_TOKEN:?set FISHJAM_MANAGEMENT_TOKEN to its management token}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -32,7 +36,7 @@ xcrun simctl bootstatus "$TARGET" -b >/dev/null
 open -a Simulator
 
 DEFINES=(
-  --dart-define=FISHJAM_URL="$FISHJAM_URL"
+  --dart-define=FISHJAM_ID="$FISHJAM_ID"
   --dart-define=FISHJAM_MANAGEMENT_TOKEN="$FISHJAM_MANAGEMENT_TOKEN"
 )
 

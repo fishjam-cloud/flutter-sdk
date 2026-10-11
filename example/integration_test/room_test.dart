@@ -9,8 +9,15 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 import 'package:integration_test/integration_test.dart';
 
-/// Fishjam server URL, e.g. `http://localhost:<port>`.
-const _fishjamUrl = String.fromEnvironment('FISHJAM_URL');
+/// Fishjam ID (resolved like the server SDKs do) or a full server URL,
+/// e.g. `http://localhost:<port>`. `FISHJAM_URL` is accepted as an alias.
+const _fishjamIdOrUrl = String.fromEnvironment(
+  'FISHJAM_ID',
+  defaultValue: String.fromEnvironment('FISHJAM_URL'),
+);
+
+/// Base URL serving both the REST API and the peer WebSocket.
+final _fishjamUrl = fishjamUrlFromId(_fishjamIdOrUrl);
 
 /// Management token of that server (used only by this test to create the
 /// room and the peers, as an app backend would).
@@ -77,7 +84,11 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('two peers exchange data and audio, then leave', (_) async {
-    expect(_fishjamUrl, isNotEmpty, reason: 'pass --dart-define=FISHJAM_URL');
+    expect(
+      _fishjamIdOrUrl,
+      isNotEmpty,
+      reason: 'pass --dart-define=FISHJAM_ID (or FISHJAM_URL)',
+    );
     expect(
       _managementToken,
       isNotEmpty,
