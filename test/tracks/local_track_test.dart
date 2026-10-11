@@ -183,6 +183,24 @@ void main() {
         expect(stream.tracks, [first]);
       });
 
+      test('rolls back the stream when adding to it fails', () async {
+        final first = FakeMediaTrack.video();
+        final stream = _FailingAddStream();
+        await stream.addTrack(first);
+        stream.failNextAdd = true;
+        final t = _track(track: first, stream: stream);
+        await t.addToConnection(pc);
+
+        await expectLater(
+          t.replaceTrack(FakeMediaTrack.video()),
+          throwsStateError,
+        );
+
+        expect(t.track, same(first));
+        expect(stream.tracks, [first]);
+        expect(pc.callsOf('replaceTrack'), isEmpty);
+      });
+
       test('without a sender only the stored track changes', () async {
         final second = FakeMediaTrack.video();
         final t = _track();
@@ -575,15 +593,18 @@ void main() {
         });
       });
 
-      test('maps a track muted before its first offer by its sender', () async {
+      test('a sender without media is not matched by identity', () async {
+        // Real adapters return a new sender wrapper on every access, so only
+        // the media track id (or a previous mid) identifies a local track.
         await connected(_track(trackId: 'me:cam', noTrack: true));
         await pc.setLocalDescription(
           const SessionDescription(type: SdpType.offer, sdp: 'x'),
         );
 
-        expect(await registry.midToTrackId(await pc.getTransceivers()), {
-          '0': 'me:cam',
-        });
+        expect(
+          await registry.midToTrackId(await pc.getTransceivers()),
+          isEmpty,
+        );
       });
 
       test('skips and logs a sender track owned by no local track', () async {
@@ -727,6 +748,23 @@ void main() {
         );
 
         expect(events, isEmpty);
+      });
+
+      test('a media track published by another local track is an '
+          'ArgumentError', () async {
+        final media = FakeMediaTrack.video();
+        await connected(_track(trackId: 'me:a', track: media));
+        await connected(_track(trackId: 'me:b'));
+
+        await expectLater(
+          registry.replaceTrack('me:b', media),
+          throwsArgumentError,
+        );
+        expect(events, isEmpty);
+        expect(pc.callsOf('replaceTrack'), isEmpty);
+
+        await registry.replaceTrack('me:a', media);
+        expect(events, [isA<LocalTrackReplaced>()]);
       });
 
       test('unknown id is an ArgumentError', () async {
@@ -1021,4 +1059,17 @@ class _BrokenSender implements RtcRtpSender {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FailingAddStream extends FakeMediaStream {
+  bool failNextAdd = false;
+
+  @override
+  Future<void> addTrack(RtcMediaTrack track) async {
+    if (failNextAdd) {
+      failNextAdd = false;
+      throw StateError('addTrack');
+    }
+    await super.addTrack(track);
+  }
 }

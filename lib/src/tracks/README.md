@@ -8,3 +8,5 @@ Owner: **Tracks**. Local and remote track state, simulcast encodings, bandwidth 
   `addTrack` passes `BandwidthLimit.unlimited` for audio (SPEC §13.4).
 - `RemoteStore` emits every remote event itself; the engine only forwards server events, answer mids and
   `onTrack`.
+- Nothing here is reentrant: callers must not overlap operations on one track. The engine serializes them
+  (command queue and serial media event handling, SPEC §7, §8.3).

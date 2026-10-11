@@ -112,21 +112,22 @@ class LocalTrack {
   }
 
   /// Replaces the sent media (mute / unmute / replace, SPEC §11.3) and
-  /// returns which action happened. Restores state and rethrows when the
-  /// sender fails. Without a sender only the stored track changes (the next
-  /// [addToConnection] uses it).
+  /// returns which action happened. Restores state (stored track and stream)
+  /// and rethrows when the stream or the sender fails. Without a sender only
+  /// the stored track changes (the next [addToConnection] uses it).
+  ///
+  /// Not reentrant: callers must not overlap calls on one track (the engine
+  /// serializes them in its command queue, SPEC §8.3).
   Future<ReplaceAction> replaceTrack(RtcMediaTrack? newTrack) async {
     final oldTrack = _track;
     final action = replaceActionOf(oldTrack, newTrack);
-    await _swapInStream(oldTrack, newTrack);
-    _track = newTrack;
-    final sender = transceiver?.sender;
-    if (sender == null) return action;
     try {
-      await sender.replaceTrack(newTrack);
+      await _swapInStream(oldTrack, newTrack);
+      _track = newTrack;
+      await transceiver?.sender.replaceTrack(newTrack);
     } catch (_) {
       _track = oldTrack;
-      await _swapInStream(newTrack, oldTrack);
+      await _restoreStream(oldTrack, newTrack);
       rethrow;
     }
     return action;
@@ -137,6 +138,23 @@ class LocalTrack {
     if (stream == null) return;
     if (from != null) await stream.removeTrack(from);
     if (to != null) await stream.addTrack(to);
+  }
+
+  /// Puts [oldTrack] back into the stream (and [newTrack] out) whatever
+  /// state a failed swap left it in.
+  Future<void> _restoreStream(
+    RtcMediaTrack? oldTrack,
+    RtcMediaTrack? newTrack,
+  ) async {
+    final stream = this.stream;
+    if (stream == null) return;
+    final ids = {for (final t in stream.tracks) t.id};
+    if (newTrack != null && ids.contains(newTrack.id)) {
+      await stream.removeTrack(newTrack);
+    }
+    if (oldTrack != null && !ids.contains(oldTrack.id)) {
+      await stream.addTrack(oldTrack);
+    }
   }
 
   /// Applies an already resolved limit to the sender (SPEC §13.6) and
@@ -337,8 +355,8 @@ class LocalTrackRegistry {
 
   /// `midToTrackId` for an `sdpOffer`, built from [transceivers] after
   /// `setLocalDescription` (SPEC §10.1). A transceiver is matched by its
-  /// sender's media track id, falling back to the sender object (a track
-  /// muted before its first offer has no media on its sender).
+  /// sender's media track id; tracks without media keep the mid of their
+  /// last answer.
   Future<Map<String, String>> midToTrackId(
     List<RtcRtpTransceiver> transceivers,
   ) async {
@@ -346,18 +364,14 @@ class LocalTrackRegistry {
     for (final transceiver in transceivers) {
       final mid = transceiver.mid;
       if (mid == null) continue;
-      final sender = transceiver.sender;
-      final media = sender.track;
+      final media = transceiver.sender.track;
+      if (media == null) continue;
       final owner = _tracks.values
-          .where(
-            (t) =>
-                (media != null && t.track?.id == media.id) ||
-                identical(t.transceiver?.sender, sender),
-          )
+          .where((t) => t.track?.id == media.id)
           .firstOrNull;
       if (owner != null) {
         mapping[mid] = owner.trackId;
-      } else if (media != null) {
+      } else {
         _logger.warn(
           'Transceiver $mid sends media track ${media.id} that belongs to '
           'no local track; skipped in midToTrackId',
@@ -389,9 +403,18 @@ class LocalTrackRegistry {
   /// `LocalTrackMuted` / `LocalTrackUnmuted` (and sends `unmuteTrack` on
   /// unmute) before the sender is updated; on failure emits the opposite
   /// event and rethrows. On success emits `LocalTrackReplaced`.
-  /// Unknown id → [ArgumentError].
+  /// Unknown id, or a media track already published by another local
+  /// track → [ArgumentError].
   Future<void> replaceTrack(String trackId, RtcMediaTrack? newTrack) async {
     final track = byId(trackId);
+    if (newTrack != null &&
+        _tracks.values.any((t) => t != track && t.track?.id == newTrack.id)) {
+      throw ArgumentError.value(
+        newTrack.id,
+        'track',
+        'already published by another local track',
+      );
+    }
     final action = replaceActionOf(track.track, newTrack);
     switch (action) {
       case ReplaceAction.mute:
