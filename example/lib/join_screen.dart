@@ -42,17 +42,17 @@ class _JoinScreenState extends State<JoinScreen> {
     if (!_form.currentState!.validate()) return;
     setState(() => _busy = true);
     try {
-      final credentials = switch (_mode) {
-        _Mode.peerToken => RoomCredentials(
-          url: fishjamUrlFromId(_fishjamUrl.text.trim()),
-          peerToken: _peerToken.text.trim(),
-        ),
-        _Mode.sandbox => await fetchSandboxCredentials(
-          sandboxApiUrl: Uri.parse(_sandboxUrl.text.trim()),
-          roomName: _roomName.text.trim(),
-          peerName: _name.text.trim(),
-        ),
-      };
+      final credentials = RoomCredentials(
+        url: fishjamUrlFromId(_fishjamUrl.text.trim()),
+        peerToken: switch (_mode) {
+          _Mode.peerToken => _peerToken.text.trim(),
+          _Mode.sandbox => await fetchSandboxPeerToken(
+            sandboxApiUrl: Uri.parse(_sandboxUrl.text.trim()),
+            roomName: _roomName.text.trim(),
+            peerName: _name.text.trim(),
+          ),
+        },
+      );
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -97,16 +97,16 @@ class _JoinScreenState extends State<JoinScreen> {
             decoration: const InputDecoration(labelText: 'Display name'),
             validator: _required,
           ),
-          if (_mode == _Mode.peerToken) ...[
-            TextFormField(
-              controller: _fishjamUrl,
-              decoration: const InputDecoration(
-                labelText: 'Fishjam ID or URL',
-                hintText: 'From the Fishjam dashboard',
-              ),
-              keyboardType: TextInputType.url,
-              validator: _required,
+          TextFormField(
+            controller: _fishjamUrl,
+            decoration: const InputDecoration(
+              labelText: 'Fishjam ID or URL',
+              hintText: 'From the Fishjam dashboard',
             ),
+            keyboardType: TextInputType.url,
+            validator: _required,
+          ),
+          if (_mode == _Mode.peerToken) ...[
             TextFormField(
               controller: _peerToken,
               decoration: const InputDecoration(

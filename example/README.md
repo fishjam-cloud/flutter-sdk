@@ -14,7 +14,7 @@ On the join screen choose one of:
 - **Peer token**: enter your Fishjam ID (or the URL of your Fishjam server) and a peer token created by your
   backend with a Fishjam server SDK. This is how production apps join. The ID is turned into a URL with
   `fishjamUrlFromId`.
-- **Sandbox API**: enter the Sandbox API URL from the Fishjam dashboard, a room name and your name. The
+- **Sandbox API**: enter your Fishjam ID, the Sandbox API URL from the Fishjam dashboard, a room name and your name. The
   Sandbox API is an unauthenticated test backend: **use it for prototyping only, never in production.**
 
 The iOS simulator has no camera; use a device to publish video. Android emulators decode only VP8, so create
