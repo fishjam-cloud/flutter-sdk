@@ -11,6 +11,13 @@ import 'package:fishjam_client/src/models/errors.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:http/http.dart' as http;
 
+/// How long to wait for ICE gathering before sending the offer with the
+/// candidates gathered so far (SPEC §19).
+const defaultIceGatheringTimeout = Duration(seconds: 3);
+
+/// How long WHEP playback waits for the first remote stream (SPEC §19).
+const defaultFirstStreamTimeout = Duration(seconds: 10);
+
 /// Maps a failed POST status to a [LivestreamError] (SPEC §19).
 LivestreamError livestreamErrorForStatus(
   int statusCode, {
@@ -103,6 +110,7 @@ Future<LivestreamConnection> connectLivestream({
   required Future<void> Function(RtcPeerConnection pc) configure,
   http.Client? httpClient,
   FishjamLogger? logger,
+  Duration iceGatheringTimeout = defaultIceGatheringTimeout,
 }) async {
   final pc = await adapter.createPeerConnection(const RtcConfiguration());
   final connection = LivestreamConnection._(
@@ -115,7 +123,7 @@ Future<LivestreamConnection> connectLivestream({
   try {
     await configure(pc);
     await pc.setLocalDescription(await pc.createOffer());
-    await _iceGatheringComplete(pc);
+    await _iceGatheringComplete(pc, iceGatheringTimeout, connection._logger);
     final offer = await pc.getLocalDescription();
 
     final response = await connection._client.post(
@@ -144,9 +152,36 @@ Future<LivestreamConnection> connectLivestream({
   }
 }
 
-Future<void> _iceGatheringComplete(RtcPeerConnection pc) async {
+Future<void> _iceGatheringComplete(
+  RtcPeerConnection pc,
+  Duration timeout,
+  FishjamLogger logger,
+) async {
   if (pc.iceGatheringState == IceGatheringState.complete) return;
-  await pc.onIceGatheringState.firstWhere(
-    (s) => s == IceGatheringState.complete,
+  final done = Completer<void>();
+  final subscription = pc.onIceGatheringState.listen(
+    (state) {
+      if (state == IceGatheringState.complete && !done.isCompleted) {
+        done.complete();
+      }
+    },
+    onDone: () {
+      if (done.isCompleted) return;
+      done.completeError(StateError('connection closed during ICE gathering'));
+    },
   );
+  final timer = Timer(timeout, () {
+    if (done.isCompleted) return;
+    logger.warn(
+      'ICE gathering did not complete within $timeout; sending the '
+      'candidates gathered so far',
+    );
+    done.complete();
+  });
+  try {
+    await done.future;
+  } finally {
+    timer.cancel();
+    await subscription.cancel();
+  }
 }

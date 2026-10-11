@@ -488,4 +488,67 @@ void main() {
       expect(states, [PeerConnectionState.connected]);
     });
   });
+
+  group('timeouts (SPEC §19)', () {
+    test('defaults', () {
+      expect(defaultIceGatheringTimeout, const Duration(seconds: 3));
+      expect(defaultFirstStreamTimeout, const Duration(seconds: 10));
+    });
+
+    test(
+      'WHIP sends the offer gathered so far when gathering times out',
+      () async {
+        final stream = FakeMediaStream();
+        await stream.addTrack(FakeMediaTrack.audio());
+        await publishWhip(
+          adapter: adapter,
+          stream: stream,
+          url: whipUrl,
+          token: 't',
+          httpClient: client,
+          logger: logger,
+          iceGatheringTimeout: const Duration(milliseconds: 20),
+        );
+        expect(
+          requests.single.body,
+          adapter.lastPeerConnection.localDescription!.sdp,
+        );
+        expect(logs.where((l) => l.contains('ICE gathering')), isNotEmpty);
+      },
+    );
+
+    test('WHEP gathering timeout also proceeds', () async {
+      final future = receiveWhep(
+        adapter: adapter,
+        url: whepUrl,
+        httpClient: client,
+        iceGatheringTimeout: const Duration(milliseconds: 20),
+      );
+      while (requests.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      adapter.lastPeerConnection.emitTrack(mid: '0', kind: MediaKind.video);
+      await future;
+    });
+
+    test('WHEP fails when no stream arrives in time and cleans up', () async {
+      final future = receiveWhep(
+        adapter: adapter,
+        url: whepUrl,
+        httpClient: client,
+        firstStreamTimeout: const Duration(milliseconds: 20),
+      );
+      final failed = expectLater(
+        future,
+        throwsA(
+          livestreamError(LivestreamError.unknownError)
+              .having((e) => e.cause, 'cause', isA<TimeoutException>()),
+        ),
+      );
+      await completeGathering();
+      await failed;
+      expect(requests.map((r) => r.method), ['POST', 'DELETE']);
+      expect(adapter.lastPeerConnection.isClosed, isTrue);
+    });
+  });
 }

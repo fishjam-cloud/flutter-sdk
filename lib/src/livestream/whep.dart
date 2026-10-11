@@ -31,13 +31,17 @@ abstract interface class WhepPlayback {
 /// remote stream arrives. Throws `LivestreamException` on HTTP errors, or
 /// when the connection fails or closes before a stream arrived.
 /// [httpClient] defaults to a new client owned by the playback; [logger]
-/// defaults to a disabled one.
+/// defaults to a disabled one. ICE gathering waits at most
+/// [iceGatheringTimeout]; without a stream within [firstStreamTimeout] after
+/// the answer, playback stops and fails with `unknownError`.
 Future<WhepPlayback> receiveWhep({
   required RtcAdapter adapter,
   required Uri url,
   String? token,
   http.Client? httpClient,
   FishjamLogger? logger,
+  Duration iceGatheringTimeout = defaultIceGatheringTimeout,
+  Duration firstStreamTimeout = defaultFirstStreamTimeout,
 }) async {
   final firstStream = Completer<RtcMediaStream>();
   // Errors are delivered by the await below; this only avoids reporting
@@ -62,6 +66,7 @@ Future<WhepPlayback> receiveWhep({
       publishing: false,
       httpClient: httpClient,
       logger: logger,
+      iceGatheringTimeout: iceGatheringTimeout,
       configure: (pc) async {
         subscriptions
           ..add(
@@ -86,7 +91,13 @@ Future<WhepPlayback> receiveWhep({
       },
     );
     try {
-      return _WhepPlayback(await firstStream.future, connection);
+      return _WhepPlayback(
+        await firstStream.future.timeout(firstStreamTimeout),
+        connection,
+      );
+    } on TimeoutException catch (error) {
+      await connection.stop();
+      throw LivestreamException(LivestreamError.unknownError, cause: error);
     } on Object {
       await connection.stop();
       rethrow;

@@ -25,7 +25,8 @@ abstract interface class WhipPublication {
 /// Publishes [stream]'s first video and first audio track to [url].
 /// Throws [ArgumentError] without tracks and `LivestreamException` on
 /// HTTP errors. [httpClient] defaults to a new client owned by the
-/// publication; [logger] defaults to a disabled one.
+/// publication; [logger] defaults to a disabled one. ICE gathering waits
+/// at most [iceGatheringTimeout].
 Future<WhipPublication> publishWhip({
   required RtcAdapter adapter,
   required RtcMediaStream stream,
@@ -33,6 +34,7 @@ Future<WhipPublication> publishWhip({
   required String token,
   http.Client? httpClient,
   FishjamLogger? logger,
+  Duration iceGatheringTimeout = defaultIceGatheringTimeout,
 }) async {
   final tracks = [
     stream.tracks.firstWhereOrNull((t) => t.kind == MediaKind.video),
@@ -52,6 +54,7 @@ Future<WhipPublication> publishWhip({
     publishing: true,
     httpClient: httpClient,
     logger: logger,
+    iceGatheringTimeout: iceGatheringTimeout,
     configure: (pc) async {
       for (final track in tracks) {
         await pc.addTransceiverWithTrack(
