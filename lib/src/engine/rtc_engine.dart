@@ -1,11 +1,3 @@
-/// The per-session media engine: media event dispatch, peer connection,
-/// negotiation, ICE (SPEC §7–§10, §11 orchestration).
-///
-/// Owner: **Engine** agent. It owns the peer connection and the negotiation
-/// state machine; local/remote state lives in the Tracks module and data
-/// channels in the Data module.
-library;
-
 import 'dart:async';
 
 import 'package:fishjam_client/src/engine/command_queue.dart';
@@ -27,32 +19,23 @@ import 'package:fishjam_client/src/tracks/local_track.dart';
 import 'package:fishjam_client/src/tracks/remote_track.dart';
 import 'package:fishjam_client/src/wire.dart';
 
-/// How the server ended the session through a media event (SPEC §3.4).
-enum EngineEnd {
-  /// A server `error` media event.
-  serverError,
+/// How the server ended the session through a media event: a server `error`,
+/// or `endpointRemoved` for the local peer.
+enum EngineEnd { serverError, localPeerRemoved }
 
-  /// `endpointRemoved` for the local peer.
-  localPeerRemoved,
-}
-
-/// One session's media engine. A reconnection creates a new engine.
+/// One session's media engine: media event dispatch, the peer connection,
+/// negotiation and ICE. A reconnection creates a new engine.
 ///
 /// Media events and commands run on one [SerialExecutor], so every server
-/// event is handled completely before the next one (SPEC §7) and a command
-/// never interleaves with an offer being built.
-///
-/// Owner: Engine.
+/// event is handled completely before the next one and a command never
+/// interleaves with an offer being built.
 class RtcEngine {
-  /// Creates an engine. `sendMediaEvent` hands events to signaling; `emit`
-  /// publishes client events. [localTracks] and [remote] are owned by the
-  /// Tracks module and injected so they can be replaced in tests.
-  ///
   /// The callbacks report session-level outcomes the owner of the session
-  /// acts on: [onServerError] after `ServerError` was emitted (leave,
-  /// SPEC §3.4), [onLocalPeerRemoved] when the server removed this peer
-  /// (SPEC §3.4), [onConnectionFailed] after `ConnectionError` was emitted
-  /// (a retryable loss, SPEC §8.4).
+  /// acts on: [onServerError] after `ServerError` was emitted (leave),
+  /// [onLocalPeerRemoved] when the server removed this peer,
+  /// [onConnectionFailed] after `ConnectionError` was emitted (a retryable
+  /// loss). They never run inside an engine task, so they may await engine
+  /// work or call [close].
   RtcEngine({
     required this._adapter,
     required this._logger,
@@ -74,23 +57,18 @@ class RtcEngine {
     _joined.future.ignore();
   }
 
-  /// Local tracks and local peer state.
   final LocalTrackRegistry localTracks;
 
-  /// Remote endpoints and tracks.
   final RemoteStore remote;
 
   /// Limit for each native call of a negotiation cycle (`createOffer`,
   /// `setLocalDescription`, `setRemoteDescription`).
   final Duration nativeCallTimeout;
 
-  /// Called with the message of a server `error` media event.
   final void Function(String message)? onServerError;
 
-  /// Called when the server announced the removal of the local peer.
   final void Function()? onLocalPeerRemoved;
 
-  /// Called when the peer connection or ICE connection failed.
   final void Function(String message)? onConnectionFailed;
 
   final RtcAdapter _adapter;
@@ -111,14 +89,13 @@ class RtcEngine {
   final _pendingCandidates = <IceCandidate>[];
 
   /// Local candidates gathered while an offer is being prepared; they are
-  /// sent right after it (SPEC §8.4). `null` when not holding.
+  /// sent right after it. `null` when not holding.
   List<IceCandidate>? _heldLocalCandidates;
   final _groupStreams = <String, RtcMediaStream>{};
   final _ownedStreams = <RtcMediaStream>{};
   bool _failed = false;
   bool _closed = false;
 
-  /// Sends `connect{metadataJson}` (SPEC §3.2).
   void connect(Object? peerMetadata) {
     localTracks.peerMetadata = peerMetadata;
     _send(
@@ -130,7 +107,7 @@ class RtcEngine {
     );
   }
 
-  /// Queues [event] for strictly serialized handling (SPEC §7). The future
+  /// Queues [event] for strictly serialized handling. The future
   /// completes when this event was handled; it never completes with an
   /// error.
   Future<void> handleServerEvent(server.MediaEvent event) =>
@@ -155,21 +132,17 @@ class RtcEngine {
   EngineEnd? get endedBy => _endedBy;
   EngineEnd? _endedBy;
 
-  /// Completes with `Joined` data once `connected` was handled.
   Future<Joined> get joined => _joined.future;
 
-  /// The peer connection, created lazily (SPEC §8.4). Used by the Data and
-  /// Stats modules.
+  /// The peer connection, created lazily. Do not call it from inside a
+  /// [negotiate] callback: both run on the executor.
   Future<RtcPeerConnection> ensurePeerConnection() =>
       _executor.run(_ensurePeerConnection);
 
-  /// The peer connection if it exists.
   RtcPeerConnection? get peerConnection => _pc;
 
-  /// SPEC §11.1. Returns the new track id.
-  ///
-  /// The audio-only room check (SPEC §20) belongs to the caller, which
-  /// knows the room type.
+  /// Returns the new track id. The audio-only room check belongs to the
+  /// caller, which knows the room type.
   Future<String> addTrack(
     RtcMediaTrack track, {
     TrackMetadata? metadata,
@@ -244,7 +217,6 @@ class RtcEngine {
     }
   }
 
-  /// SPEC §11.2.
   Future<void> removeTrack(String trackId) async {
     localTracks.byId(trackId);
     await _commands.push(
@@ -269,8 +241,8 @@ class RtcEngine {
     _emit(LocalTrackRemoved(trackId));
   }
 
-  /// SPEC §11.3: a non-negotiating command; the registry emits the events,
-  /// sends `unmuteTrack` and rolls back on failure.
+  /// A non-negotiating command; the registry emits the events, sends
+  /// `unmuteTrack` and rolls back on failure.
   Future<void> replaceTrack(String trackId, RtcMediaTrack? track) async {
     localTracks.byId(trackId);
     await _commands.push(
@@ -283,7 +255,7 @@ class RtcEngine {
     );
   }
 
-  /// Runs a batchable negotiating command for the Data module (SPEC §16):
+  /// Runs a batchable negotiating command for the data channels:
   /// [apply] creates the channels on the peer connection. Completes after
   /// the answer of the cycle that carried it. Fails with
   /// `StateError('not connected')` before `connected`.
@@ -305,7 +277,6 @@ class RtcEngine {
     );
   }
 
-  /// SPEC §11.6.
   void updatePeerMetadata(Object? metadata) {
     if (_closed) return;
     localTracks.peerMetadata = metadata;
@@ -319,7 +290,7 @@ class RtcEngine {
     _emit(LocalPeerMetadataChanged(metadata));
   }
 
-  /// SPEC §11.6. Throws [ArgumentError] for an unknown track.
+  /// Throws [ArgumentError] for an unknown track.
   void updateTrackMetadata(String trackId, TrackMetadata? metadata) {
     final track = localTracks.byId(trackId)..metadata = metadata;
     switch (track.negotiationStatus) {
@@ -333,7 +304,7 @@ class RtcEngine {
     }
   }
 
-  /// Sends `disconnect` (SPEC §3.3 step 1). Does not tear down.
+  /// Sends `disconnect`; does not tear down (call [close] after it).
   void sendDisconnect() =>
       _send(peer.MediaEvent(disconnect: peer.MediaEvent_Disconnect()));
 
@@ -367,8 +338,6 @@ class RtcEngine {
     _ownedStreams.clear();
     _groupStreams.clear();
   }
-
-  // ------------------------------------------------------------- dispatch
 
   Future<void> _dispatch(
     server.MediaEvent_Content content,
@@ -434,7 +403,8 @@ class RtcEngine {
     }
   }
 
-  /// Events about the local endpoint are ignored (SPEC §7, D11).
+  /// Events about the local endpoint are ignored entirely: a local
+  /// `tracksAdded` must not start a negotiation.
   bool _isRemote(String endpointId) {
     if (endpointId != _localPeerId) return true;
     _logger.debug('Ignored an event about the local endpoint');
@@ -479,8 +449,6 @@ class RtcEngine {
     );
   }
 
-  // ---------------------------------------------------------- negotiation
-
   void _perform(List<NegotiationEffect> effects) {
     for (final effect in effects) {
       switch (effect) {
@@ -498,7 +466,6 @@ class RtcEngine {
     }
   }
 
-  /// SPEC §8.2 `offerData` row, §9, §10.1.
   Future<void> _onOfferData(server.MediaEvent_OfferData offerData) async {
     if (_negotiation.state == NegotiationState.offerSent) {
       _logger.warn(
@@ -538,7 +505,6 @@ class RtcEngine {
     }
   }
 
-  /// SPEC §8.2 `sdpAnswer` row, §10.2.
   Future<void> _onSdpAnswer(server.MediaEvent_SdpAnswer answer) async {
     final pc = _pc;
     if (_negotiation.state != NegotiationState.offerSent || pc == null) {
@@ -574,7 +540,7 @@ class RtcEngine {
     _perform(_negotiation.handle(NegotiationInput.answerApplied));
   }
 
-  /// A cycle cannot complete (SPEC §8.2): the server waits for an offer
+  /// A cycle cannot complete: the server waits for an offer
   /// that will not come, or the connection's descriptions are
   /// inconsistent. Fail the cycle's commands and report a connection
   /// failure so the session owner reconnects. After close it is a
@@ -604,7 +570,7 @@ class RtcEngine {
   }
 
   /// Makes the live receive transceivers per kind match the server's
-  /// numbers (SPEC §9).
+  /// numbers.
   Future<void> _syncReceiveTransceivers(
     RtcPeerConnection pc,
     server.MediaEvent_OfferData_TrackTypes types,
@@ -643,10 +609,7 @@ class RtcEngine {
     }
   }
 
-  // ------------------------------------------------------ peer connection
-
-  /// Creates the peer connection on first use (SPEC §8.4). Runs on the
-  /// executor.
+  /// Runs on the executor.
   Future<RtcPeerConnection> _ensurePeerConnection() async {
     final existing = _pc;
     if (existing != null) return existing;
@@ -736,8 +699,7 @@ class RtcEngine {
   }
 
   /// Runs an owner callback once every task queued on the executor so far
-  /// has finished, never from inside a task, so the owner may await engine
-  /// work (or close the engine) from it.
+  /// has finished, never from inside a task.
   void _notifyOwner(void Function() callback) => unawaited(
     _executor.run(() async {}).then((_) {
       try {
@@ -748,7 +710,7 @@ class RtcEngine {
     }),
   );
 
-  /// Remote candidates wait for a remote description (SPEC §8.4).
+  /// Remote candidates wait for a remote description.
   Future<void> _onRemoteCandidate(shared.Candidate c) async {
     final candidate = IceCandidate(
       candidate: c.candidate,
@@ -775,11 +737,9 @@ class RtcEngine {
     }
   }
 
-  // ---------------------------------------------------------------- misc
-
   /// The stream a new track is associated with: camera and microphone
   /// share one, screen share video and audio another, any other track gets
-  /// its own (SPEC §11.1).
+  /// its own.
   Future<RtcMediaStream> _streamFor(
     RtcMediaTrack track,
     TrackMetadata? metadata,
@@ -806,10 +766,9 @@ class RtcEngine {
   }
 }
 
-/// The Tracks module's local track construction: video limits are resolved
-/// against the caps (throwing [ArgumentError] for an invalid one, before
-/// anything is registered), audio tracks are added without a limit
-/// (SPEC §11.1, §13.4).
+/// Video limits are resolved against the caps (throwing [ArgumentError] for
+/// an invalid one, before anything is registered); audio tracks are added
+/// without a limit.
 LocalTrack _newLocalTrack({
   required String trackId,
   required RtcMediaTrack track,

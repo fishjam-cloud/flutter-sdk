@@ -1,8 +1,3 @@
-/// The command queue (SPEC §8.3).
-///
-/// Owner: **Engine** agent.
-library;
-
 import 'dart:async';
 
 import 'package:fishjam_client/src/engine/negotiation_state.dart';
@@ -10,7 +5,7 @@ import 'package:fishjam_client/src/engine/negotiation_state.dart';
 /// Runs asynchronous tasks strictly one after another.
 ///
 /// Media event handling and command execution share one executor, so a
-/// command never interleaves with an offer being built (SPEC §7, §8).
+/// command never interleaves with an offer being built.
 /// A task must not wait for another task scheduled on the same executor.
 class SerialExecutor {
   Future<void> _tail = Future.value();
@@ -34,11 +29,8 @@ enum CommandCompletion {
   onHandlerDone,
 }
 
-/// A user operation that touches the sender set (SPEC §8.3).
-///
-/// Owner: Engine.
+/// A user operation that touches the sender set.
 class Command {
-  /// Creates a command.
   Command({
     required this.name,
     required this.run,
@@ -52,13 +44,12 @@ class Command {
   /// Validates and applies the command. Throwing fails only this command.
   final Future<void> Function() run;
 
-  /// When the command is complete.
   final CommandCompletion completion;
 
-  /// Whether it may join a pending negotiation.
+  /// Whether it may join a pending negotiation (one offer carries several
+  /// batchable commands).
   final bool batchable;
 
-  /// Whether the command is carried by a negotiation.
   bool get needsNegotiation => completion == CommandCompletion.afterNegotiation;
 
   final Completer<void> _done = Completer<void>();
@@ -79,23 +70,17 @@ class Command {
 }
 
 /// FIFO of [Command]s driven by the negotiation state machine.
-///
-/// Owner: Engine.
 class CommandQueue {
-  /// Creates a queue.
   CommandQueue({
     required this.negotiation,
     required this.executor,
     required this.perform,
   });
 
-  /// The state machine deciding when commands may start.
   final NegotiationStateMachine negotiation;
 
-  /// The serial lane commands run on.
   final SerialExecutor executor;
 
-  /// Performs the effects of a state machine transition.
   final void Function(List<NegotiationEffect> effects) perform;
 
   final _pending = <Command>[];
@@ -114,8 +99,7 @@ class CommandQueue {
     return command.done;
   }
 
-  /// Schedules starting every command that may start now (SPEC §8.3 rules
-  /// 1, 2).
+  /// Schedules starting every command that may start now.
   void pump() => unawaited(executor.run(_pumpNow));
 
   Future<void> _pumpNow() async {
@@ -130,8 +114,8 @@ class CommandQueue {
   }
 
   /// Runs the batchable commands at the head of the queue into the offer
-  /// being built, stopping at the first non-batchable one (SPEC §8.3 rule
-  /// 2). Call it on [executor].
+  /// being built, stopping at the first non-batchable one. Call it on
+  /// [executor].
   Future<void> drainBatch() async {
     while (!_closed && _pending.isNotEmpty && _pending.first.batchable) {
       await _start(_pending.removeAt(0));
@@ -177,8 +161,7 @@ class CommandQueue {
   }
 
   /// Fails every pending, running and in-flight command with
-  /// `StateError('disconnected')`; later pushes fail the same way
-  /// (SPEC §8.3 rule 6).
+  /// `StateError('disconnected')`; later pushes fail the same way.
   void failAll() {
     _closed = true;
     final all = [?_running, ..._inFlight, ..._pending];

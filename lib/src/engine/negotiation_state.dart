@@ -1,10 +1,3 @@
-/// The negotiation state machine (SPEC §8.1, §8.2).
-///
-/// Owner: **Engine** agent. This is the only place that decides whether a
-/// negotiation is in progress.
-library;
-
-/// Negotiation states (SPEC §8.1).
 enum NegotiationState {
   /// No negotiation in flight; commands may start.
   idle,
@@ -17,9 +10,7 @@ enum NegotiationState {
   offerSent,
 }
 
-/// Inputs of the state machine (SPEC §8.2).
 enum NegotiationInput {
-  /// A negotiating command started.
   commandStarted,
 
   /// `tracksAdded` from a remote endpoint.
@@ -36,32 +27,21 @@ enum NegotiationInput {
 }
 
 /// What the caller must do after a transition.
-enum NegotiationEffect {
-  /// Nothing.
-  none,
+enum NegotiationEffect { none, sendRenegotiateTracks, processNextCommand }
 
-  /// Send `renegotiateTracks`.
-  sendRenegotiateTracks,
-
-  /// Start the next queued command.
-  processNextCommand,
-}
-
-/// Pure transition logic: no I/O, so it can be tested exhaustively.
-///
-/// Owner: Engine.
+/// The only place that decides whether a negotiation is in progress. Pure
+/// transition logic: no I/O, so it can be tested exhaustively.
 class NegotiationStateMachine {
   NegotiationState _state = NegotiationState.idle;
   bool _restartPending = false;
 
-  /// Current state.
   NegotiationState get state => _state;
 
   /// Whether an ICE restart was requested during the current cycle; it is
-  /// sent when the cycle ends (SPEC §8.2, D19).
+  /// sent when the cycle ends, not in the middle of it.
   bool get restartPending => _restartPending;
 
-  /// Whether a command may start now (SPEC §8.3 rules 1, 2): anything in
+  /// Whether a command may start now: anything in
   /// [NegotiationState.idle], only batchable commands in
   /// [NegotiationState.requested], nothing while an offer is in flight.
   bool canStart({required bool batchable}) => switch (_state) {
