@@ -164,16 +164,18 @@ States: `idle`, `reconnecting`, `failed`.
 |---|---|---|---|
 | idle (joined) | retryable loss: retryable close, socket error, pong timeout, peer connection `failed`, ICE `failed` | snapshot local peer metadata (`peer` part) and local tracks; emit `ReconnectionStarted`; schedule attempt 1 | reconnecting |
 | reconnecting | attempt timer fires | tear down old session silently (no `Disconnected`); start a new session with the snapshot metadata | reconnecting |
-| reconnecting | retryable loss in the new session before `connected` | schedule next attempt if attempts remain | reconnecting |
+| reconnecting | retryable loss in the new session before `connected` (including a new session that cannot be started at all) | schedule next attempt if attempts remain | reconnecting |
 | reconnecting | retryable loss, no attempts left | clear queue; emit `ReconnectionFailed`, then `Disconnected(DisconnectReason.reconnectionFailed)` | failed |
 | reconnecting | terminal close (auth/join/session ended/protocol) | cancel timer; clear queue; emit the matching error event and `Disconnected` | failed |
-| reconnecting | `connected` | emit `Joined`; if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended tracks); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
+| reconnecting | `connected` | emit `Joined`; if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks); emit `LocalTrackRemoved(oldTrackId)` for every snapshotted track that is not re-added (ended, muted, or its re-add failed); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
 | any | `leave()` | cancel timer; clear queue | idle |
 
 - Delay of attempt `n` (1-based) is `initialDelay + (n - 1) * delay`.
 - Only one attempt timer exists at a time; triggers while a timer is pending are ignored.
 - Failures before the first `Joined` of a `connect()` call never start reconnection ([§3.2](#32-connect)).
 - A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it.
+- A **muted** track (no media track) is not re-added: there is nothing to publish. The app is told with
+  `LocalTrackRemoved` and adds the track again when it unmutes.
 
 ## 7. Media event processing
 
@@ -334,15 +336,18 @@ Completes after the answer; emits `LocalTrackRemoved(trackId)`. Unknown id → `
 | `null` | present | **unmute**: send `unmuteTrack{trackId}`, emit `LocalTrackUnmuted(trackId)` |
 | otherwise | | **replace** |
 
-Then `sender.replaceTrack(newTrack)`. On failure the previous track is restored and the opposite mute/unmute
-event is emitted. On success emit `LocalTrackReplaced(trackId, track)`. Unknown id → `ArgumentError`.
+Then `sender.replaceTrack(newTrack)`. On failure the previous track is restored, the opposite mute/unmute
+event is emitted and the call fails with the sender's error. On success emit `LocalTrackReplaced(trackId, track)`.
+Unknown id, or a media track already published by another local track (same rule as §11.1) → `ArgumentError`,
+nothing emitted. Before the track has a sender, only the stored track changes (events as above).
 
 ### 11.4 Encodings (sender variants)
 
 `enableTrackEncoding` / `disableTrackEncoding(trackId, variant)`: find the sender encoding whose rid maps to
 the variant (`l`, `m`, `h`), set `active`, `setParameters`, then send `enableTrackVariant` /
 `disableTrackVariant{trackId, variant}` and emit `LocalTrackEncodingEnabled` / `LocalTrackEncodingDisabled`
-(the correct one for each operation). Missing encoding → `ArgumentError`.
+(the correct one for each operation). The track's `simulcastConfig` enabled/disabled variants follow. Missing
+encoding → `ArgumentError`.
 
 ### 11.5 Bandwidth
 
@@ -405,7 +410,7 @@ Limits are given in kbps (×1024 to get bps).
 ### 13.4 Audio
 
 Audio tracks are added without a limit (`0`). `setTrackBandwidth` on an audio track applies the given number
-as is; a map → `ArgumentError`. `setEncodingBandwidth` on audio applies the number as is.
+as is; a map → `ArgumentError`. `setEncodingBandwidth` on audio is an `ArgumentError` (audio has no layers).
 
 ### 13.5 Reported bitrates
 
@@ -441,7 +446,8 @@ as is; a map → `ArgumentError`. `setEncodingBandwidth` on audio applies the nu
 
 - `tracksAdded{endpointId, trackIdToTrack}` → for each new track: create a `RemoteTrack` (metadata,
   simulcast config, no media yet), emit `TrackAdded`. A track id that is already known is updated in place
-  (metadata, simulcast config) without a second `TrackAdded`.
+  (metadata, simulcast config) without a second `TrackAdded`. A track id owned by another endpoint is logged and
+  ignored.
 - `tracksRemoved{endpointId, trackIds}` → remove, emit `TrackRemoved` for each known id.
 - `trackUpdated{endpointId, trackId, metadataJson}` → store, emit `TrackUpdated`.
 - Remote track metadata is decoded into `TrackMetadata` when it has the shape
@@ -456,8 +462,8 @@ transceiver mid. Unknown mid → logged and ignored. Otherwise attach the media 
 
 ### 14.4 Variants (receiving simulcast)
 
-- `setTargetTrackEncoding(trackId, variant)`: validate **before** storing — the track must be simulcast and
-  the variant must be in its enabled variants, otherwise `ArgumentError` and nothing is sent. Then send
+- `setTargetTrackEncoding(trackId, variant)`: validate **before** storing — the track must be known and
+  simulcast and the variant must be in its enabled variants, otherwise `ArgumentError` and nothing is sent. Then send
   `setTargetTrackVariant{trackId, variant}` and emit `TargetTrackEncodingRequested(trackId, variant)`.
 - `trackVariantSwitched{trackId, variant}` → set `encoding`, emit `TrackEncodingChanged`. `encodingReason`
   stays `null` (the server does not provide one).
@@ -491,14 +497,19 @@ snapshots.
 - Incoming messages are decoded as `ChannelMessage`; when `binary` is set, `binary.data` is delivered to
   `dataStream(reliable: <channel == reliable>)` subscribers. Text messages are converted to UTF-8 bytes first.
   Undecodable messages are logged and dropped.
-- `dataStream(...)` may be subscribed before the channels exist. Channels are closed on teardown.
+- `dataStream(...)` may be subscribed before the channels exist; subscriptions survive reconnection. Channels
+  are closed on teardown, which fails a pending `createDataChannels()` with `StateError('disconnected')`
+  without emitting `DataChannelsError` (also when the engine fails the command with
+  `StateError('disconnected')`). After a failure, `createDataChannels()` may be called again. Disposing the
+  client ends every `dataStream`.
 
 ## 17. Statistics reporting
 
 - Every 10 s while `joined`, the client calls `getStats()` on the peer connection and sends
   `rtcStatsReport{data}` (queued, [§5](#5-outgoing-message-queue)).
-- `data` is a JSON object mapping each report id to the report's fields (including `id`, `type`, `kind`),
-  containing only reports of type `inbound-rtp` or `outbound-rtp`.
+- `data` is a JSON object mapping each report id to the report's fields (including `id`, `type`, `kind`,
+  `timestamp`), containing only reports of type `inbound-rtp` or `outbound-rtp`. Values JSON cannot represent
+  (`NaN`, infinities) are sent as `null`. A report whose `getStats()` is still running at teardown is dropped.
 - The timer starts on `Joined` (every session) and stops on teardown. A failing `getStats()` skips the tick.
 
 ## 18. Local audio level
@@ -516,13 +527,18 @@ Plain HTTP, no Fishjam socket.
   and the first audio track. Create offer, set local description, wait for ICE gathering to complete, then
   `POST url` with `Content-Type: application/sdp`, `Authorization: Bearer <token>`, body = offer SDP. Expect
   `201` with the answer SDP and a `Location` header (resolved against `url`). Set remote description.
+  ICE gathering waits at most `iceGatheringTimeout` (default 3 s); on timeout the offer is sent with the
+  candidates gathered so far.
 - **Receive (WHEP)** `receiveLivestream(url, {token})`: `recvonly` video and audio transceivers, same exchange
-  (bearer header only when a token is given). Completes when the first remote stream arrives.
+  (bearer header only when a token is given). Completes when the first remote stream arrives; if the
+  connection fails or closes first, or no stream arrives within `firstStreamTimeout` (default 10 s) after the
+  answer, it stops (as below) and fails with `unknownError`.
 - **Stop**: `DELETE <Location>` with the same bearer header, then close the peer connection. A failed DELETE
-  is logged; the peer connection is closed regardless.
+  is logged; the peer connection is closed regardless. Without a `Location` header nothing is deleted. Stop is
+  idempotent. A failure after a successful POST (e.g. the answer cannot be applied) stops the same way.
 - Status mapping for the POST: `401` → `LivestreamError.unauthorized`, `404` → `streamNotFound`,
-  `409` (publish only) → `streamerAlreadyConnected`, anything else non-2xx or a network error →
-  `unknownError`.
+  `409` (publish only) → `streamerAlreadyConnected`, anything else non-2xx, a network error or a WebRTC
+  failure → `unknownError` (with the original error as `cause`).
 
 ## 20. Audio-only rooms
 
@@ -569,6 +585,7 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D17 | metadata `undefined` may be sent as an empty string | always valid JSON (§2.3) | the server drops empty JSON |
 | D18 | `tracksPriorityChanged`, `bandwidthEstimationChanged`, `getBandwidthEstimation` exist but are never fed | dropped | dead API |
 | D19 | ICE `disconnected` sends `renegotiateTracks` even mid-cycle | deferred until the cycle ends (§8.2) | keeps client and server in step |
+| D20 | a failed `replaceTrack` is swallowed; the call succeeds | rolled back, then the call fails with the error (§11.3) | the app learns the media was not replaced |
 
 ## 23. Golden fixtures
 

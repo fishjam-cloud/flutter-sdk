@@ -5,9 +5,6 @@
 /// [LocalTrackRegistry]; it never touches senders directly.
 library;
 
-// Constructor fields are kept for the Tracks implementation.
-// ignore_for_file: unused_field
-
 import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/models/endpoint.dart';
 import 'package:fishjam_client/src/models/events.dart';
@@ -16,6 +13,10 @@ import 'package:fishjam_client/src/models/track.dart';
 import 'package:fishjam_client/src/proto/fishjam/media_events/peer/peer.pb.dart'
     as peer;
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
+import 'package:fishjam_client/src/tracks/bandwidth.dart';
+import 'package:fishjam_client/src/tracks/encodings.dart';
+import 'package:fishjam_client/src/wire.dart';
+import 'package:uuid/uuid.dart';
 
 /// Negotiation status of a local track (SPEC §11.6).
 enum TrackNegotiationStatus {
@@ -31,7 +32,9 @@ enum TrackNegotiationStatus {
 
 /// One published track and its sender.
 ///
-/// Owner: Tracks.
+/// The methods here act on the sender only and emit nothing; the
+/// [LocalTrackRegistry] methods of the same names add the media events and
+/// client events of SPEC §11.3–§11.5.
 class LocalTrack {
   /// Creates a local track. [maxBandwidth] is already resolved.
   LocalTrack({
@@ -39,8 +42,8 @@ class LocalTrack {
     required this.kind,
     required this._track,
     required this.stream,
-    required this._metadata,
-    required this.simulcastConfig,
+    required this.metadata,
+    required this._simulcastConfig,
     required this._maxBandwidth,
   });
 
@@ -53,21 +56,22 @@ class LocalTrack {
   /// Associated stream.
   final RtcMediaStream? stream;
 
-  /// Simulcast configuration.
-  final SimulcastConfig simulcastConfig;
+  RtcMediaTrack? _track;
+  SimulcastConfig _simulcastConfig;
+  BandwidthLimit _maxBandwidth;
 
-  final RtcMediaTrack? _track;
-  final TrackMetadata? _metadata;
-  final BandwidthLimit _maxBandwidth;
+  /// Simulcast configuration; enabled/disabled variants follow
+  /// [setEncodingActive].
+  SimulcastConfig get simulcastConfig => _simulcastConfig;
 
   /// Current media track; `null` while muted.
-  RtcMediaTrack? get track => throw UnimplementedError('Tracks');
+  RtcMediaTrack? get track => _track;
 
   /// Current metadata.
-  TrackMetadata? get metadata => throw UnimplementedError('Tracks');
+  TrackMetadata? metadata;
 
   /// Resolved bandwidth limit.
-  BandwidthLimit get maxBandwidth => throw UnimplementedError('Tracks');
+  BandwidthLimit get maxBandwidth => _maxBandwidth;
 
   /// Mid from the last answer; `null` before the first answer.
   String? mid;
@@ -82,35 +86,182 @@ class LocalTrack {
   RtcRtpTransceiver? transceiver;
 
   /// Immutable snapshot for events and getters.
-  LocalTrackContext toContext() => throw UnimplementedError('Tracks');
+  LocalTrackContext toContext() => LocalTrackContext(
+    trackId: trackId,
+    kind: kind,
+    rtcTrack: _track,
+    rtcStream: stream,
+    metadata: metadata,
+    simulcastConfig: _simulcastConfig,
+    maxBandwidth: _maxBandwidth,
+  );
 
-  /// Adds this track as a send transceiver on [pc] (SPEC §11.1).
-  Future<void> addToConnection(RtcPeerConnection pc) =>
-      throw UnimplementedError('Tracks');
+  /// Adds this track as a send transceiver on [pc] (SPEC §11.1). A muted
+  /// track gets a transceiver of its kind without media.
+  Future<void> addToConnection(RtcPeerConnection pc) async {
+    final init = sendTransceiverInit(
+      kind: kind,
+      simulcastConfig: _simulcastConfig,
+      maxBandwidth: _maxBandwidth,
+      stream: stream,
+    );
+    final media = _track;
+    transceiver = media != null
+        ? await pc.addTransceiverWithTrack(media, init)
+        : await pc.addTransceiverOfKind(kind, init);
+  }
 
   /// Replaces the sent media (mute / unmute / replace, SPEC §11.3) and
-  /// returns which action happened. Restores state when the sender fails.
-  Future<ReplaceAction> replaceTrack(RtcMediaTrack? newTrack) =>
-      throw UnimplementedError('Tracks');
+  /// returns which action happened. Restores state (stored track and stream)
+  /// and rethrows when the stream or the sender fails. Without a sender only
+  /// the stored track changes (the next [addToConnection] uses it).
+  ///
+  /// Not reentrant: callers must not overlap calls on one track (the engine
+  /// serializes them in its command queue, SPEC §8.3).
+  Future<ReplaceAction> replaceTrack(RtcMediaTrack? newTrack) async {
+    final oldTrack = _track;
+    final action = replaceActionOf(oldTrack, newTrack);
+    try {
+      await _swapInStream(oldTrack, newTrack);
+      _track = newTrack;
+      await transceiver?.sender.replaceTrack(newTrack);
+    } catch (_) {
+      _track = oldTrack;
+      await _restoreStream(oldTrack, newTrack);
+      rethrow;
+    }
+    return action;
+  }
+
+  Future<void> _swapInStream(RtcMediaTrack? from, RtcMediaTrack? to) async {
+    final stream = this.stream;
+    if (stream == null) return;
+    if (from != null) await stream.removeTrack(from);
+    if (to != null) await stream.addTrack(to);
+  }
+
+  /// Puts [oldTrack] back into the stream (and [newTrack] out) whatever
+  /// state a failed swap left it in.
+  Future<void> _restoreStream(
+    RtcMediaTrack? oldTrack,
+    RtcMediaTrack? newTrack,
+  ) async {
+    final stream = this.stream;
+    if (stream == null) return;
+    final ids = {for (final t in stream.tracks) t.id};
+    if (newTrack != null && ids.contains(newTrack.id)) {
+      await stream.removeTrack(newTrack);
+    }
+    if (oldTrack != null && !ids.contains(oldTrack.id)) {
+      await stream.addTrack(oldTrack);
+    }
+  }
 
   /// Applies an already resolved limit to the sender (SPEC §13.6) and
-  /// stores it.
-  Future<void> setBandwidth(BandwidthLimit resolved) =>
-      throw UnimplementedError('Tracks');
+  /// stores it. Throws [StateError] without a sender.
+  Future<void> setBandwidth(BandwidthLimit resolved) async {
+    final sender = _requireSender();
+    final parameters = sender.getParameters();
+    final encodings = switch (resolved) {
+      SingleBandwidthLimit() when parameters.encodings.isEmpty => const [
+        RtpEncoding(),
+      ],
+      SingleBandwidthLimit(:final kbps) => splitBandwidth(
+        parameters.encodings,
+        kbps,
+        logger: FishjamLogger.disabled(),
+      ),
+      SimulcastBandwidthLimit(:final kbpsPerVariant) => applySimulcastLimits(
+        parameters.encodings,
+        kbpsPerVariant,
+      ),
+    };
+    await sender.setParameters(parameters.copyWith(encodings: encodings));
+    _maxBandwidth = resolved;
+  }
 
   /// Applies an already resolved layer limit (SPEC §13.6) and stores it.
-  Future<void> setEncodingBandwidth(Variant variant, int resolvedKbps) =>
-      throw UnimplementedError('Tracks');
+  /// Throws [ArgumentError] when the sender has no such layer, [StateError]
+  /// without a sender.
+  Future<void> setEncodingBandwidth(Variant variant, int resolvedKbps) async {
+    await _updateEncoding(
+      variant,
+      (e) => resolvedKbps > 0
+          ? e.copyWith(maxBitrateBps: kbpsToBps(resolvedKbps))
+          : e.copyWith(clearMaxBitrate: true),
+    );
+    if (_maxBandwidth case SimulcastBandwidthLimit(:final kbpsPerVariant)) {
+      _maxBandwidth = BandwidthLimit.simulcast({
+        ...kbpsPerVariant,
+        variant: resolvedKbps,
+      });
+    }
+  }
 
-  /// Activates or deactivates one simulcast layer (SPEC §11.4).
-  Future<void> setEncodingActive(Variant variant, {required bool active}) =>
-      throw UnimplementedError('Tracks');
+  /// Activates or deactivates one simulcast layer (SPEC §11.4). Throws
+  /// [ArgumentError] when the sender has no such layer, [StateError] without
+  /// a sender.
+  Future<void> setEncodingActive(
+    Variant variant, {
+    required bool active,
+  }) async {
+    await _updateEncoding(variant, (e) => e.copyWith(active: active));
+    final enabled = {..._simulcastConfig.enabledVariants};
+    active ? enabled.add(variant) : enabled.remove(variant);
+    _simulcastConfig = _simulcastConfig.copyWith(
+      enabledVariants: [
+        for (final v in Variant.values)
+          if (enabled.contains(v)) v,
+      ],
+      disabledVariants: [
+        for (final v in Variant.values)
+          if (!enabled.contains(v)) v,
+      ],
+    );
+  }
 
-  /// Stores new metadata.
-  set metadata(TrackMetadata? value) => throw UnimplementedError('Tracks');
+  Future<void> _updateEncoding(
+    Variant variant,
+    RtpEncoding Function(RtpEncoding) update,
+  ) async {
+    final sender = _requireSender();
+    final parameters = sender.getParameters();
+    final index = parameters.encodings.indexWhere(
+      (e) => encodingVariant(e) == variant,
+    );
+    if (index < 0) {
+      throw ArgumentError.value(
+        variant,
+        'variant',
+        'track $trackId has no ${variant.name} encoding',
+      );
+    }
+    final encodings = [...parameters.encodings];
+    encodings[index] = update(encodings[index]);
+    await sender.setParameters(parameters.copyWith(encodings: encodings));
+  }
 
-  /// Audio level from sender stats (SPEC §18).
-  Future<double?> audioLevel() => throw UnimplementedError('Tracks');
+  RtcRtpSender _requireSender() =>
+      transceiver?.sender ??
+      (throw StateError('track $trackId has no sender yet'));
+
+  /// Audio level from sender stats (SPEC §18): the `audioLevel` of the first
+  /// audio `media-source` report, or `null`.
+  Future<double?> audioLevel() async {
+    final sender = transceiver?.sender;
+    if (sender == null) return null;
+    try {
+      for (final report in await sender.getStats()) {
+        if (report.type != 'media-source') continue;
+        if (report.values case {'kind': 'audio', 'audioLevel': final num l}) {
+          return l.toDouble();
+        }
+      }
+    } on Object catch (_) {
+      return null;
+    }
+    return null;
+  }
 }
 
 /// Result of [LocalTrack.replaceTrack].
@@ -125,9 +276,17 @@ enum ReplaceAction {
   replace,
 }
 
+/// What replacing [oldTrack] with [newTrack] means (SPEC §11.3).
+ReplaceAction replaceActionOf(
+  RtcMediaTrack? oldTrack,
+  RtcMediaTrack? newTrack,
+) => switch ((oldTrack, newTrack)) {
+  (_?, null) => ReplaceAction.mute,
+  (null, _?) => ReplaceAction.unmute,
+  _ => ReplaceAction.replace,
+};
+
 /// All local tracks of a session, plus the local peer's metadata and id.
-///
-/// Owner: Tracks.
 class LocalTrackRegistry {
   /// Creates an empty registry.
   LocalTrackRegistry({
@@ -139,6 +298,9 @@ class LocalTrackRegistry {
   final FishjamLogger _logger;
   final void Function(peer.MediaEvent event) _sendMediaEvent;
   final void Function(FishjamEvent event) _emit;
+  final Map<String, LocalTrack> _tracks = {};
+
+  static const _uuid = Uuid();
 
   /// Local peer id; empty until `connected`.
   String peerId = '';
@@ -149,49 +311,215 @@ class LocalTrackRegistry {
   /// Local peer metadata (`server` part), as reported in `connected`.
   Object? serverMetadata;
 
-  /// Registered tracks in registration order.
-  List<LocalTrack> get tracks => throw UnimplementedError('Tracks');
+  /// Registered tracks in registration order (read-only view).
+  List<LocalTrack> get tracks => List.unmodifiable(_tracks.values);
 
   /// The track with [trackId]; throws [ArgumentError] when unknown.
-  LocalTrack byId(String trackId) => throw UnimplementedError('Tracks');
+  LocalTrack byId(String trackId) =>
+      _tracks[trackId] ??
+      (throw ArgumentError.value(trackId, 'trackId', 'unknown local track'));
 
   /// Generates a new track id `<peerId>:<uuid v4>`.
-  String newTrackId() => throw UnimplementedError('Tracks');
+  String newTrackId() => '$peerId:${_uuid.v4()}';
 
-  /// Registers [track].
-  void register(LocalTrack track) => throw UnimplementedError('Tracks');
+  /// Registers [track]; a duplicate id is an [ArgumentError].
+  void register(LocalTrack track) {
+    if (_tracks.containsKey(track.trackId)) {
+      throw ArgumentError.value(track.trackId, 'trackId', 'already registered');
+    }
+    _tracks[track.trackId] = track;
+  }
 
-  /// Unregisters [trackId] and returns the removed track.
-  LocalTrack unregister(String trackId) => throw UnimplementedError('Tracks');
+  /// Unregisters [trackId] and returns the removed track; throws
+  /// [ArgumentError] when unknown.
+  LocalTrack unregister(String trackId) {
+    final track = byId(trackId);
+    _tracks.remove(trackId);
+    return track;
+  }
 
   /// Whether [mediaTrack] is already published by some local track.
   bool isPublished(RtcMediaTrack mediaTrack) =>
-      throw UnimplementedError('Tracks');
+      _tracks.values.any((t) => t.track?.id == mediaTrack.id);
 
-  /// `trackIdToMetadataJson` for an `sdpOffer` (SPEC §10.1).
-  Map<String, String> trackIdToMetadataJson() =>
-      throw UnimplementedError('Tracks');
+  /// `trackIdToMetadataJson` for an `sdpOffer` (SPEC §10.1, §2.3).
+  Map<String, String> trackIdToMetadataJson() => {
+    for (final t in _tracks.values)
+      t.trackId: encodeMetadataJson(t.metadata?.toJson()),
+  };
 
   /// `trackIdToBitrates` for an `sdpOffer` (SPEC §10.1).
-  Map<String, peer.MediaEvent_TrackBitrates> trackIdToBitrates() =>
-      throw UnimplementedError('Tracks');
+  Map<String, peer.MediaEvent_TrackBitrates> trackIdToBitrates() => {
+    for (final t in _tracks.values) t.trackId: _trackBitrates(t),
+  };
 
   /// `midToTrackId` for an `sdpOffer`, built from [transceivers] after
-  /// `setLocalDescription` (SPEC §10.1).
+  /// `setLocalDescription` (SPEC §10.1). A transceiver is matched by its
+  /// sender's media track id; tracks without media keep the mid of their
+  /// last answer.
   Future<Map<String, String>> midToTrackId(
     List<RtcRtpTransceiver> transceivers,
-  ) => throw UnimplementedError('Tracks');
+  ) async {
+    final mapping = <String, String>{};
+    for (final transceiver in transceivers) {
+      final mid = transceiver.mid;
+      if (mid == null) continue;
+      final media = transceiver.sender.track;
+      if (media == null) continue;
+      final owner = _tracks.values
+          .where((t) => t.track?.id == media.id)
+          .firstOrNull;
+      if (owner != null) {
+        mapping[mid] = owner.trackId;
+      } else {
+        _logger.warn(
+          'Transceiver $mid sends media track ${media.id} that belongs to '
+          'no local track; skipped in midToTrackId',
+        );
+      }
+    }
+    for (final t in _tracks.values) {
+      if (t.mid case final mid?) mapping.putIfAbsent(mid, () => t.trackId);
+    }
+    return mapping;
+  }
 
-  /// Stores mids from an answer for local tracks (SPEC §10.2).
-  void applyAnswerMids(Map<String, String> midToTrackId) =>
-      throw UnimplementedError('Tracks');
+  /// Stores mids from an answer for local tracks (SPEC §10.2). Other ids
+  /// belong to remote tracks and are ignored here.
+  void applyAnswerMids(Map<String, String> midToTrackId) {
+    for (final MapEntry(key: mid, value: trackId) in midToTrackId.entries) {
+      _tracks[trackId]?.mid = mid;
+    }
+  }
 
   /// Snapshot of the local peer.
-  LocalPeer toLocalPeer() => throw UnimplementedError('Tracks');
+  LocalPeer toLocalPeer() => LocalPeer(
+    id: peerId,
+    metadata: Metadata(peer: peerMetadata, server: serverMetadata),
+    tracks: {for (final t in _tracks.values) t.trackId: t.toContext()},
+  );
 
-  /// SPEC §11.3: mute / unmute / replace [trackId]'s media, with its media
-  /// events and client events; on failure emits the opposite event and
-  /// rethrows. Unknown id → [ArgumentError].
-  Future<void> replaceTrack(String trackId, RtcMediaTrack? newTrack) =>
-      throw UnimplementedError('Tracks');
+  /// SPEC §11.3: mute / unmute / replace [trackId]'s media. Emits
+  /// `LocalTrackMuted` / `LocalTrackUnmuted` (and sends `unmuteTrack` on
+  /// unmute) before the sender is updated; on failure emits the opposite
+  /// event and rethrows. On success emits `LocalTrackReplaced`.
+  /// Unknown id, or a media track already published by another local
+  /// track → [ArgumentError].
+  Future<void> replaceTrack(String trackId, RtcMediaTrack? newTrack) async {
+    final track = byId(trackId);
+    if (newTrack != null &&
+        _tracks.values.any((t) => t != track && t.track?.id == newTrack.id)) {
+      throw ArgumentError.value(
+        newTrack.id,
+        'track',
+        'already published by another local track',
+      );
+    }
+    final action = replaceActionOf(track.track, newTrack);
+    switch (action) {
+      case ReplaceAction.mute:
+        _emit(LocalTrackMuted(trackId));
+      case ReplaceAction.unmute:
+        _sendMediaEvent(
+          peer.MediaEvent(
+            unmuteTrack: peer.MediaEvent_UnmuteTrack(trackId: trackId),
+          ),
+        );
+        _emit(LocalTrackUnmuted(trackId));
+      case ReplaceAction.replace:
+        break;
+    }
+    try {
+      await track.replaceTrack(newTrack);
+    } catch (_) {
+      switch (action) {
+        case ReplaceAction.mute:
+          _emit(LocalTrackUnmuted(trackId));
+        case ReplaceAction.unmute:
+          _emit(LocalTrackMuted(trackId));
+        case ReplaceAction.replace:
+          break;
+      }
+      rethrow;
+    }
+    _emit(LocalTrackReplaced(trackId, newTrack));
+  }
+
+  /// SPEC §11.5: resolves [limit] (SPEC §13), applies it to the sender,
+  /// stores it, sends `trackBitrates` and emits `LocalTrackBandwidthSet`.
+  /// Unknown id or invalid limit → [ArgumentError]; no sender →
+  /// [StateError]. Nothing is sent on failure.
+  Future<void> setTrackBandwidth(String trackId, BandwidthLimit limit) async {
+    final track = byId(trackId);
+    final resolved = resolveTrackBandwidth(
+      limit,
+      kind: track.kind,
+      simulcast: track.simulcastConfig.enabled,
+      logger: _logger,
+    );
+    await track.setBandwidth(resolved);
+    _sendTrackBitrates(track);
+    _emit(LocalTrackBandwidthSet(trackId, resolved));
+  }
+
+  /// SPEC §11.5: resolves [kbps] against the layer cap (video only),
+  /// applies it to the layer, sends `trackBitrates` for the whole track and
+  /// emits `LocalTrackEncodingBandwidthSet`. Unknown id or missing layer →
+  /// [ArgumentError]; no sender → [StateError].
+  Future<void> setEncodingBandwidth(
+    String trackId,
+    Variant variant,
+    int kbps,
+  ) async {
+    final track = byId(trackId);
+    final resolved = track.kind == MediaKind.video
+        ? resolveVariantBandwidth(variant, kbps, logger: _logger)
+        : kbps;
+    await track.setEncodingBandwidth(variant, resolved);
+    _sendTrackBitrates(track);
+    _emit(LocalTrackEncodingBandwidthSet(trackId, variant, resolved));
+  }
+
+  /// SPEC §11.4: activates the layer, sends `enableTrackVariant`, emits
+  /// `LocalTrackEncodingEnabled`.
+  Future<void> enableTrackEncoding(String trackId, Variant variant) async {
+    await byId(trackId).setEncodingActive(variant, active: true);
+    _sendMediaEvent(
+      peer.MediaEvent(
+        enableTrackVariant: peer.MediaEvent_EnableTrackVariant(
+          trackId: trackId,
+          variant: variantToProto(variant),
+        ),
+      ),
+    );
+    _emit(LocalTrackEncodingEnabled(trackId, variant));
+  }
+
+  /// SPEC §11.4: deactivates the layer, sends `disableTrackVariant`, emits
+  /// `LocalTrackEncodingDisabled` (D3).
+  Future<void> disableTrackEncoding(String trackId, Variant variant) async {
+    await byId(trackId).setEncodingActive(variant, active: false);
+    _sendMediaEvent(
+      peer.MediaEvent(
+        disableTrackVariant: peer.MediaEvent_DisableTrackVariant(
+          trackId: trackId,
+          variant: variantToProto(variant),
+        ),
+      ),
+    );
+    _emit(LocalTrackEncodingDisabled(trackId, variant));
+  }
+
+  /// SPEC §18: the audio level of [trackId]; `null` for unknown tracks.
+  Future<double?> audioLevel(String trackId) =>
+      _tracks[trackId]?.audioLevel() ?? Future.value();
+
+  void _sendTrackBitrates(LocalTrack track) =>
+      _sendMediaEvent(peer.MediaEvent(trackBitrates: _trackBitrates(track)));
+
+  peer.MediaEvent_TrackBitrates _trackBitrates(LocalTrack track) =>
+      peer.MediaEvent_TrackBitrates(
+        trackId: track.trackId,
+        variantBitrates: variantBitrates(track.maxBandwidth, track.kind),
+      );
 }
