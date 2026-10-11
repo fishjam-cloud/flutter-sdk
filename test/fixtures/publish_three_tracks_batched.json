@@ -1,0 +1,270 @@
+{
+  "name": "publish_three_tracks_batched",
+  "description": "Three addTrack calls made back to back before offerData produce exactly one renegotiateTracks and one sdpOffer carrying all three tracks, mids in registration order (SPEC \u00a78.3 rule 4). Audio without a limit reports 50000 bps (SPEC \u00a713.5).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "api",
+      "call": "addTrack",
+      "args": {
+        "kind": "audio",
+        "metadata": {
+          "type": "microphone",
+          "paused": false
+        }
+      },
+      "bind": "mic"
+    },
+    {
+      "direction": "api",
+      "call": "addTrack",
+      "args": {
+        "kind": "video",
+        "metadata": {
+          "type": "camera",
+          "paused": false
+        }
+      },
+      "bind": "cam"
+    },
+    {
+      "direction": "api",
+      "call": "addTrack",
+      "args": {
+        "kind": "video",
+        "metadata": {
+          "type": "screenShareVideo",
+          "paused": false
+        }
+      },
+      "bind": "screen"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${mic}": "{\"type\":\"microphone\",\"paused\":false}",
+              "${cam}": "{\"type\":\"camera\",\"paused\":false}",
+              "${screen}": "{\"type\":\"screenShareVideo\",\"paused\":false}"
+            },
+            "trackIdToBitrates": {
+              "${mic}": {
+                "trackId": "${mic}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 50000
+                  }
+                ]
+              },
+              "${cam}": {
+                "trackId": "${cam}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              },
+              "${screen}": {
+                "trackId": "${screen}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${mic}",
+              "1": "${cam}",
+              "2": "${screen}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "audio",
+        "direction": "sendonly"
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "video",
+        "direction": "sendonly"
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "video",
+        "direction": "sendonly"
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${mic}",
+              "1": "${cam}",
+              "2": "${screen}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "${mic}",
+          "kind": "audio",
+          "maxBandwidth": 0
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "${cam}",
+          "kind": "video",
+          "maxBandwidth": 1500
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "${screen}",
+          "kind": "video",
+          "maxBandwidth": 1500
+        }
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 50
+    }
+  ]
+}

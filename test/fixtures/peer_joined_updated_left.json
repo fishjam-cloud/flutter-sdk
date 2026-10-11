@@ -1,0 +1,289 @@
+{
+  "name": "peer_joined_updated_left",
+  "description": "endpointAdded carries no type, so it is always a peer (PeerJoined); endpointUpdated (PeerUpdated); the peer publishes; endpointRemoved emits TrackRemoved for each track before PeerLeft. Finally endpointRemoved for the local peer ends the session without sending disconnect (SPEC \u00a73.4, \u00a714.1).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "endpointAdded": {
+            "endpointId": "bob",
+            "metadataJson": "{\"peer\":{\"name\":\"bob\"},\"server\":{}}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "PeerJoined",
+      "fields": {
+        "peer": {
+          "id": "bob",
+          "type": "exwebrtc",
+          "metadata": {
+            "peer": {
+              "name": "bob"
+            },
+            "server": {}
+          },
+          "tracks": []
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "endpointUpdated": {
+            "endpointId": "bob",
+            "metadataJson": "{\"peer\":{\"name\":\"bobby\"},\"server\":{}}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "PeerUpdated",
+      "fields": {
+        "peer": {
+          "id": "bob",
+          "metadata": {
+            "peer": {
+              "name": "bobby"
+            },
+            "server": {}
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "tracksAdded": {
+            "endpointId": "bob",
+            "trackIdToTrack": {
+              "bob:cam": {
+                "metadataJson": "{\"type\":\"camera\",\"paused\":false}",
+                "simulcastConfig": {
+                  "enabled": true,
+                  "enabledVariants": [
+                    "VARIANT_LOW",
+                    "VARIANT_MEDIUM",
+                    "VARIANT_HIGH"
+                  ]
+                }
+              },
+              "bob:mic": {
+                "metadataJson": "{\"type\":\"microphone\",\"paused\":false}",
+                "simulcastConfig": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "bob:cam"
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "bob:mic"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 1,
+              "video": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {},
+            "trackIdToBitrates": {},
+            "midToTrackId": {}
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "bob:cam",
+              "1": "bob:mic"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "endpointRemoved": {
+            "endpointId": "bob"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackRemoved",
+      "fields": {
+        "track": {
+          "trackId": "bob:cam"
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackRemoved",
+      "fields": {
+        "track": {
+          "trackId": "bob:mic"
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "PeerLeft",
+      "fields": {
+        "peer": {
+          "id": "bob",
+          "tracks": [
+            "bob:cam",
+            "bob:mic"
+          ]
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "endpointRemoved": {
+            "endpointId": "local-peer"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Disconnected",
+      "fields": {
+        "reason": "removedByServer"
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 50
+    }
+  ]
+}

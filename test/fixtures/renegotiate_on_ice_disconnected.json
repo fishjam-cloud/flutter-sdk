@@ -1,0 +1,440 @@
+{
+  "name": "renegotiate_on_ice_disconnected",
+  "description": "ICE disconnected while idle sends renegotiateTracks and runs a full cycle that keeps the published track mapped. ICE disconnected while an offer is in flight is deferred and sent once that cycle ends (SPEC \u00a78.2, D19).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "api",
+      "call": "addTrack",
+      "args": {
+        "kind": "video",
+        "metadata": {
+          "type": "camera",
+          "paused": false
+        }
+      },
+      "bind": "cam"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${cam}": "{\"type\":\"camera\",\"paused\":false}"
+            },
+            "trackIdToBitrates": {
+              "${cam}": {
+                "trackId": "${cam}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "video",
+        "direction": "sendonly",
+        "sendEncodings": [
+          {
+            "active": true,
+            "maxBitrate": 1536000
+          }
+        ]
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "${cam}",
+          "kind": "video",
+          "maxBandwidth": 1500,
+          "muted": false
+        }
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "iceConnectionState",
+      "args": {
+        "state": "disconnected"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${cam}": "{\"type\":\"camera\",\"paused\":false}"
+            },
+            "trackIdToBitrates": {
+              "${cam}": {
+                "trackId": "${cam}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "iceConnectionState",
+      "args": {
+        "state": "connected"
+      }
+    },
+    {
+      "direction": "api",
+      "call": "addTrack",
+      "args": {
+        "kind": "audio",
+        "metadata": {
+          "type": "microphone",
+          "paused": false
+        }
+      },
+      "bind": "mic"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${cam}": "{\"type\":\"camera\",\"paused\":false}",
+              "${mic}": "{\"type\":\"microphone\",\"paused\":false}"
+            },
+            "trackIdToBitrates": {
+              "${cam}": {
+                "trackId": "${cam}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              },
+              "${mic}": {
+                "trackId": "${mic}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 50000
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${cam}",
+              "1": "${mic}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "iceConnectionState",
+      "args": {
+        "state": "disconnected"
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 50
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${cam}",
+              "1": "${mic}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "${mic}"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${cam}": "{\"type\":\"camera\",\"paused\":false}",
+              "${mic}": "{\"type\":\"microphone\",\"paused\":false}"
+            },
+            "trackIdToBitrates": {
+              "${cam}": {
+                "trackId": "${cam}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              },
+              "${mic}": {
+                "trackId": "${mic}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 50000
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${cam}",
+              "1": "${mic}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${cam}",
+              "1": "${mic}"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

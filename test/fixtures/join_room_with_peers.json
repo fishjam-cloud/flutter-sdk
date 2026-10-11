@@ -1,0 +1,286 @@
+{
+  "name": "join_room_with_peers",
+  "description": "connect() to a room with two peers (one publishing simulcast video and audio) and a component. Existing endpoints arrive only in Joined (no PeerJoined/TrackAdded, D12). The server then repeats the existing tracks in tracksAdded (known ids: updated in place, no second TrackAdded) and starts a negotiation with offerData; the client adds one recvonly video and one recvonly audio transceiver (video first, SPEC \u00a79), sends an offer without local tracks and resolves remote media by mid (SPEC \u00a714.3).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              },
+              "bob": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"bob\"},\"server\":{}}",
+                "trackIdToTrack": {
+                  "bob:cam": {
+                    "metadataJson": "{\"type\":\"camera\",\"paused\":false}",
+                    "simulcastConfig": {
+                      "enabled": true,
+                      "enabledVariants": [
+                        "VARIANT_LOW",
+                        "VARIANT_MEDIUM",
+                        "VARIANT_HIGH"
+                      ]
+                    }
+                  },
+                  "bob:mic": {
+                    "metadataJson": "{\"type\":\"microphone\",\"paused\":false}",
+                    "simulcastConfig": {}
+                  }
+                }
+              },
+              "carol": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"carol\"},\"server\":{}}"
+              },
+              "hls-1": {
+                "endpointType": "hls",
+                "metadataJson": "{}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [
+          {
+            "id": "bob",
+            "type": "exwebrtc",
+            "metadata": {
+              "peer": {
+                "name": "bob"
+              },
+              "server": {}
+            },
+            "tracks": [
+              "bob:cam",
+              "bob:mic"
+            ]
+          },
+          {
+            "id": "carol",
+            "type": "exwebrtc",
+            "metadata": {
+              "peer": {
+                "name": "carol"
+              },
+              "server": {}
+            },
+            "tracks": []
+          }
+        ],
+        "components": [
+          {
+            "id": "hls-1",
+            "type": "hls",
+            "tracks": []
+          }
+        ]
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "tracksAdded": {
+            "endpointId": "bob",
+            "trackIdToTrack": {
+              "bob:cam": {
+                "metadataJson": "{\"type\":\"camera\",\"paused\":false}",
+                "simulcastConfig": {
+                  "enabled": true,
+                  "enabledVariants": [
+                    "VARIANT_LOW",
+                    "VARIANT_MEDIUM",
+                    "VARIANT_HIGH"
+                  ]
+                }
+              },
+              "bob:mic": {
+                "metadataJson": "{\"type\":\"microphone\",\"paused\":false}",
+                "simulcastConfig": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 1,
+              "video": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {},
+            "trackIdToBitrates": {},
+            "midToTrackId": {}
+          }
+        }
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "video",
+        "direction": "recvonly"
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "audio",
+        "direction": "recvonly"
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "bob:cam",
+              "1": "bob:mic"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "onTrack",
+      "args": {
+        "mid": "0",
+        "kind": "video",
+        "streamId": "bob-stream"
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackReady",
+      "fields": {
+        "track": {
+          "trackId": "bob:cam",
+          "endpointId": "bob",
+          "kind": "video",
+          "ready": true,
+          "simulcastConfig": {
+            "enabled": true,
+            "enabledVariants": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "disabledVariants": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "onTrack",
+      "args": {
+        "mid": "1",
+        "kind": "audio",
+        "streamId": "bob-stream"
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackReady",
+      "fields": {
+        "track": {
+          "trackId": "bob:mic",
+          "kind": "audio",
+          "ready": true,
+          "metadata": {
+            "type": "microphone",
+            "paused": false
+          }
+        }
+      }
+    }
+  ]
+}

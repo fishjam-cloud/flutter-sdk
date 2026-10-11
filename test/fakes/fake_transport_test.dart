@@ -159,8 +159,10 @@ void main() {
       await b.connect(Uri.parse('ws://x'));
       b.send(_auth('b').writeToBuffer());
 
+      expect(factory.unreadSent, hasLength(2));
       expect((await factory.nextSent()).authRequest.token, 'a');
       expect((await factory.nextSent()).authRequest.token, 'b');
+      expect(factory.unreadSent, isEmpty);
     });
   });
 }

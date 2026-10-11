@@ -1,0 +1,124 @@
+{
+  "name": "server_error_event",
+  "description": "A server error media event: ServerError, then the client leaves gracefully (sends disconnect) and emits Disconnected(serverError) without reconnecting (SPEC \u00a73.4).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "error": {
+            "message": "Internal error"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "ServerError",
+      "fields": {
+        "message": "Internal error"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "disconnect": {}
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Disconnected",
+      "fields": {
+        "reason": "serverError"
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 100
+    }
+  ]
+}

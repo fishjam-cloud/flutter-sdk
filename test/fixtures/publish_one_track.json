@@ -1,0 +1,227 @@
+{
+  "name": "publish_one_track",
+  "description": "addTrack(camera) in an idle session: renegotiateTracks, offerData, sdpOffer carrying metadata, bitrates (1500 kbps cap = 1536000 bps) and mid mapping, answer, LocalTrackAdded (SPEC \u00a78, \u00a710, \u00a711.1, \u00a713). Then trickle ICE in both directions (SPEC \u00a78.4).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "api",
+      "call": "addTrack",
+      "args": {
+        "kind": "video",
+        "metadata": {
+          "type": "camera",
+          "paused": false
+        }
+      },
+      "bind": "cam"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${cam}": "{\"type\":\"camera\",\"paused\":false}"
+            },
+            "trackIdToBitrates": {
+              "${cam}": {
+                "trackId": "${cam}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "video",
+        "direction": "sendonly",
+        "sendEncodings": [
+          {
+            "active": true,
+            "maxBitrate": 1536000
+          }
+        ]
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "${cam}",
+          "kind": "video",
+          "maxBandwidth": 1500,
+          "muted": false
+        }
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "iceCandidate",
+      "args": {
+        "candidate": "candidate:1 1 udp 2122260223 192.168.1.2 54321 typ host",
+        "sdpMid": "0",
+        "sdpMLineIndex": 0
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "candidate": {
+            "candidate": "candidate:1 1 udp 2122260223 192.168.1.2 54321 typ host",
+            "sdpMid": "0",
+            "sdpMLineIndex": 0
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "candidate": {
+            "candidate": "candidate:2 1 udp 2122260223 10.0.0.1 40000 typ host",
+            "sdpMid": "0",
+            "sdpMLineIndex": 0
+          }
+        }
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addIceCandidate",
+      "args": {
+        "candidate": "candidate:2 1 udp 2122260223 10.0.0.1 40000 typ host"
+      }
+    }
+  ]
+}

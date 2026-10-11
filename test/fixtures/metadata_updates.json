@@ -1,0 +1,281 @@
+{
+  "name": "metadata_updates",
+  "description": "updatePeerMetadata sends updateEndpointMetadata. updateTrackMetadata while the track is pending only stores the value (the sdpOffer carries it); while the offer is in flight it is deferred and sent once, with the latest value, after the answer; afterwards it is sent at once. Absent metadata is sent as \"null\", never an empty string (SPEC \u00a72.3, \u00a711.6).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "api",
+      "call": "updatePeerMetadata",
+      "args": {
+        "metadata": {
+          "name": "alice2"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "updateEndpointMetadata": {
+            "metadataJson": "{\"name\":\"alice2\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalPeerMetadataChanged",
+      "fields": {
+        "metadata": {
+          "name": "alice2"
+        }
+      }
+    },
+    {
+      "direction": "api",
+      "call": "addTrack",
+      "args": {
+        "kind": "video",
+        "metadata": {
+          "type": "camera",
+          "paused": false
+        }
+      },
+      "bind": "cam"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "api",
+      "call": "updateTrackMetadata",
+      "args": {
+        "trackId": "${cam}",
+        "metadata": {
+          "type": "camera",
+          "paused": true
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${cam}": "{\"type\":\"camera\",\"paused\":true}"
+            },
+            "trackIdToBitrates": {
+              "${cam}": {
+                "trackId": "${cam}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "api",
+      "call": "updateTrackMetadata",
+      "args": {
+        "trackId": "${cam}",
+        "metadata": {
+          "type": "camera",
+          "paused": false
+        }
+      }
+    },
+    {
+      "direction": "api",
+      "call": "updateTrackMetadata",
+      "args": {
+        "trackId": "${cam}",
+        "metadata": {
+          "type": "camera",
+          "paused": false,
+          "displayName": "Alice"
+        }
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 50
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "updateTrackMetadata": {
+            "trackId": "${cam}",
+            "metadataJson": "{\"type\":\"camera\",\"paused\":false,\"displayName\":\"Alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackMetadataChanged",
+      "fields": {
+        "trackId": "${cam}",
+        "metadata": {
+          "type": "camera",
+          "paused": false,
+          "displayName": "Alice"
+        }
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 50
+    },
+    {
+      "direction": "api",
+      "call": "updateTrackMetadata",
+      "args": {
+        "trackId": "${cam}",
+        "metadata": null
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "updateTrackMetadata": {
+            "trackId": "${cam}",
+            "metadataJson": "null"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackMetadataChanged",
+      "fields": {
+        "trackId": "${cam}",
+        "metadata": null
+      }
+    }
+  ]
+}

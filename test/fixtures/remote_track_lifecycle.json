@@ -1,0 +1,445 @@
+{
+  "name": "remote_track_lifecycle",
+  "description": "A remote peer publishes simulcast video and audio: TrackAdded, offerData-driven negotiation, TrackReady by mid, voice activity, target variant validation (non-simulcast target fails and sends nothing, D7), variant switch/disable, metadata update, removal and the follow-up negotiation where the server keeps the receive counts (SPEC \u00a79, \u00a714).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              },
+              "bob": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"bob\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [
+          {
+            "id": "bob",
+            "tracks": []
+          }
+        ]
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "tracksAdded": {
+            "endpointId": "bob",
+            "trackIdToTrack": {
+              "bob:cam": {
+                "metadataJson": "{\"type\":\"camera\",\"paused\":false}",
+                "simulcastConfig": {
+                  "enabled": true,
+                  "enabledVariants": [
+                    "VARIANT_LOW",
+                    "VARIANT_MEDIUM",
+                    "VARIANT_HIGH"
+                  ]
+                }
+              },
+              "bob:mic": {
+                "metadataJson": "{\"type\":\"microphone\",\"paused\":false}",
+                "simulcastConfig": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "bob:cam",
+          "endpointId": "bob",
+          "ready": false,
+          "metadata": {
+            "type": "camera",
+            "paused": false
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "bob:mic",
+          "endpointId": "bob",
+          "ready": false
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 1,
+              "video": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {},
+            "trackIdToBitrates": {},
+            "midToTrackId": {}
+          }
+        }
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "video",
+        "direction": "recvonly"
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "audio",
+        "direction": "recvonly"
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "bob:cam",
+              "1": "bob:mic"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "onTrack",
+      "args": {
+        "mid": "0",
+        "kind": "video",
+        "streamId": "bob-stream"
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackReady",
+      "fields": {
+        "track": {
+          "trackId": "bob:cam",
+          "kind": "video",
+          "ready": true
+        }
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "onTrack",
+      "args": {
+        "mid": "1",
+        "kind": "audio",
+        "streamId": "bob-stream"
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackReady",
+      "fields": {
+        "track": {
+          "trackId": "bob:mic",
+          "kind": "audio",
+          "ready": true
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "vadNotification": {
+            "trackId": "bob:mic",
+            "status": "STATUS_SPEECH"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "VoiceActivityChanged",
+      "fields": {
+        "track": {
+          "trackId": "bob:mic",
+          "vadStatus": "speech"
+        }
+      }
+    },
+    {
+      "direction": "api",
+      "call": "setTargetTrackEncoding",
+      "args": {
+        "trackId": "bob:mic",
+        "variant": "low"
+      },
+      "error": "ArgumentError"
+    },
+    {
+      "direction": "api",
+      "call": "setTargetTrackEncoding",
+      "args": {
+        "trackId": "bob:cam",
+        "variant": "low"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "setTargetTrackVariant": {
+            "trackId": "bob:cam",
+            "variant": "VARIANT_LOW"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TargetTrackEncodingRequested",
+      "fields": {
+        "trackId": "bob:cam",
+        "variant": "low"
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "trackVariantSwitched": {
+            "endpointId": "bob",
+            "trackId": "bob:cam",
+            "variant": "VARIANT_LOW"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackEncodingChanged",
+      "fields": {
+        "track": {
+          "trackId": "bob:cam",
+          "encoding": "low"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "trackVariantDisabled": {
+            "endpointId": "bob",
+            "trackId": "bob:cam",
+            "variant": "VARIANT_HIGH"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackVariantsChanged",
+      "fields": {
+        "track": {
+          "trackId": "bob:cam",
+          "simulcastConfig": {
+            "enabled": true,
+            "enabledVariants": [
+              "low",
+              "medium"
+            ],
+            "disabledVariants": [
+              "high"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "trackUpdated": {
+            "endpointId": "bob",
+            "trackId": "bob:cam",
+            "metadataJson": "{\"type\":\"camera\",\"paused\":true}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackUpdated",
+      "fields": {
+        "track": {
+          "trackId": "bob:cam",
+          "metadata": {
+            "type": "camera",
+            "paused": true
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "tracksRemoved": {
+            "endpointId": "bob",
+            "trackIds": [
+              "bob:cam"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "TrackRemoved",
+      "fields": {
+        "track": {
+          "trackId": "bob:cam"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 1,
+              "video": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {},
+            "trackIdToBitrates": {},
+            "midToTrackId": {}
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "1": "bob:mic"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 50
+    }
+  ]
+}

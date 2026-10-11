@@ -1,0 +1,52 @@
+{
+  "name": "auth_failure_close",
+  "description": "The server closes the socket with \"Invalid token\" before authenticating: connect() fails with AuthException, AuthFailed and Disconnected(authError) are emitted, nothing is retried (SPEC \u00a73.2, \u00a74).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      },
+      "error": "AuthException"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "close",
+      "code": 1000,
+      "reason": "Invalid token"
+    },
+    {
+      "direction": "expect",
+      "event": "AuthFailed",
+      "fields": {
+        "reason": "invalidToken"
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Disconnected",
+      "fields": {
+        "reason": "authError",
+        "closeCode": 1000,
+        "closeReason": "Invalid token"
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 1000
+    }
+  ]
+}

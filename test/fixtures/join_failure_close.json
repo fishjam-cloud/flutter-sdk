@@ -1,0 +1,48 @@
+{
+  "name": "join_failure_close",
+  "description": "The server closes the socket with \"reached peers limit\": connect() fails with JoinException, JoinFailed and Disconnected(joinError) are emitted, nothing is retried (SPEC \u00a74).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": null
+      },
+      "error": "JoinException"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "close",
+      "code": 1000,
+      "reason": "reached peers limit"
+    },
+    {
+      "direction": "expect",
+      "event": "JoinFailed",
+      "fields": {
+        "reason": "reachedPeersLimit"
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Disconnected",
+      "fields": {
+        "reason": "joinError"
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 1000
+    }
+  ]
+}

@@ -30,6 +30,7 @@ import 'package:fishjam_client/src/models/simulcast.dart';
 import 'package:fishjam_client/src/models/track.dart';
 import 'package:fishjam_client/src/proto/fishjam/peer_notifications.pb.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
+import 'package:fishjam_client/src/version.dart';
 
 import '../fakes/fake_rtc.dart';
 import '../fakes/fake_transport.dart';
@@ -42,7 +43,7 @@ const fixturesDirectory = 'test/fixtures';
 
 /// A parsed fixture.
 class Fixture {
-  Fixture._(this.name, this.description, this.steps);
+  Fixture._(this.name, this.description, this.config, this.steps);
 
   /// Parses fixture JSON.
   factory Fixture.parse(String source) {
@@ -57,6 +58,7 @@ class Fixture {
     return Fixture._(
       json['name']! as String,
       (json['description'] as String?) ?? '',
+      (json['config'] as Map<String, Object?>?) ?? const {},
       [
         for (var i = 0; i < steps.length; i++)
           FixtureStep._parse(i, steps[i]! as Map<String, Object?>),
@@ -84,6 +86,9 @@ class Fixture {
 
   /// What the fixture covers.
   final String description;
+
+  /// Client configuration the test must use (e.g. `reconnect` settings).
+  final Map<String, Object?> config;
 
   /// Ordered steps.
   final List<FixtureStep> steps;
@@ -127,6 +132,7 @@ sealed class FixtureStep {
         fields: obj('fields'),
       ),
       'wait' => WaitStep(index, Duration(milliseconds: json['ms']! as int)),
+      'noOut' => NoOutStep(index, Duration(milliseconds: json['ms']! as int)),
       final other => throw FormatException('Unknown step direction: $other'),
     };
   }
@@ -240,6 +246,15 @@ class WaitStep extends FixtureStep {
   final Duration duration;
 }
 
+/// Time passes and the client must not send anything.
+class NoOutStep extends FixtureStep {
+  /// Creates the step.
+  const NoOutStep(super.index, this.duration);
+
+  /// How long.
+  final Duration duration;
+}
+
 // ---------------------------------------------------------------- matching
 
 final _placeholder = RegExp(r'^\$\{(\w+)\}$');
@@ -282,6 +297,11 @@ class Bindings {
 
   String? _mismatch(Object? expected, Object? actual, String path) {
     if (expected == '<any>') return null;
+    if (expected == '<sdkVersion>') {
+      return actual == sdkVersion
+          ? null
+          : '$path: expected $sdkVersion, got $actual';
+    }
     if (expected == '<sdp>') {
       return actual is String && actual.isNotEmpty
           ? null
@@ -313,7 +333,12 @@ class Bindings {
           }
           key = '${_values[name]}';
         }
-        if (!remaining.containsKey(key)) return '$path: missing key "$key"';
+        if (!remaining.containsKey(key)) {
+          // proto3 JSON omits default values, so an expected default matches
+          // a missing key.
+          if (_isProtoDefault(entry.value)) continue;
+          return '$path: missing key "$key"';
+        }
         final m = _mismatch(entry.value, remaining.remove(key), '$path.$key');
         if (m != null) return m;
       }
@@ -382,6 +407,14 @@ class Bindings {
   }
 }
 
+bool _isProtoDefault(Object? value) =>
+    value == 0 ||
+    value == false ||
+    value == '' ||
+    (value is String && value.endsWith('_UNSPECIFIED')) ||
+    (value is List && value.isEmpty) ||
+    (value is Map && value.isEmpty);
+
 bool _deepEquals(Object? a, Object? b) {
   if (a is num && b is num) return a == b;
   if (a is Map && b is Map) {
@@ -410,6 +443,47 @@ Map<String, Object?> peerMessageToJson(PeerMessage message) =>
     message.toProto3Json()! as Map<String, Object?>;
 
 // ------------------------------------------------------------------ events
+
+/// Names [describeEvent] can produce.
+Set<String> get knownEventNames => const {
+  'AuthSucceeded',
+  'AuthFailed',
+  'JoinFailed',
+  'Joined',
+  'Disconnected',
+  'ReconnectionStarted',
+  'Reconnected',
+  'ReconnectionFailed',
+  'ConnectionError',
+  'ServerError',
+  'PeerJoined',
+  'PeerLeft',
+  'PeerUpdated',
+  'ComponentAdded',
+  'ComponentRemoved',
+  'ComponentUpdated',
+  'TrackAdded',
+  'TrackReady',
+  'TrackRemoved',
+  'TrackUpdated',
+  'TrackEncodingChanged',
+  'TrackVariantsChanged',
+  'VoiceActivityChanged',
+  'TargetTrackEncodingRequested',
+  'LocalTrackAdded',
+  'LocalTrackRemoved',
+  'LocalTrackReplaced',
+  'LocalTrackMuted',
+  'LocalTrackUnmuted',
+  'LocalTrackBandwidthSet',
+  'LocalTrackEncodingBandwidthSet',
+  'LocalTrackEncodingEnabled',
+  'LocalTrackEncodingDisabled',
+  'LocalPeerMetadataChanged',
+  'LocalTrackMetadataChanged',
+  'DataChannelsReady',
+  'DataChannelsError',
+};
 
 /// JSON-like description of [event] used by `expect` steps.
 Map<String, Object?> describeEvent(FishjamEvent event) => {
@@ -681,6 +755,14 @@ class FixtureReplayer {
       case WaitStep(:final duration):
         await (onWait ?? Future<void>.delayed)(duration);
         await settle();
+      case NoOutStep(:final duration):
+        await (onWait ?? Future<void>.delayed)(duration);
+        await settle();
+        final unread = transports.unreadSent
+            .map(peerMessageToJson)
+            .where((m) => !_isCandidate(m))
+            .toList();
+        if (unread.isNotEmpty) _fail(step, 'unexpected messages: $unread');
     }
   }
 

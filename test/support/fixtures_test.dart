@@ -8,6 +8,7 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/peer/peer.pb.dart'
     as peer;
 import 'package:fishjam_client/src/proto/fishjam/peer_notifications.pb.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
+import 'package:fishjam_client/src/version.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_rtc.dart';
@@ -27,6 +28,23 @@ void main() {
       expect(b.match({'a': 1, 'b': 2}, {'a': 1}), isFalse);
     });
 
+    test('expected proto3 defaults match missing keys', () {
+      final b = Bindings();
+
+      expect(
+        b.match({
+          'variant': 'VARIANT_UNSPECIFIED',
+          'bitrate': 0,
+          'flag': false,
+          'text': '',
+          'list': <Object?>[],
+          'map': <String, Object?>{},
+        }, <String, Object?>{}),
+        isTrue,
+      );
+      expect(b.match({'metadataJson': 'null'}, <String, Object?>{}), isFalse);
+    });
+
     test('<any> and <sdp> wildcards', () {
       final b = Bindings();
 
@@ -35,6 +53,8 @@ void main() {
       expect(b.match('<sdp>', 'v=0'), isTrue);
       expect(b.match('<sdp>', ''), isFalse);
       expect(b.match('<sdp>', 3), isFalse);
+      expect(b.match('<sdkVersion>', 'flutter-$packageVersion'), isTrue);
+      expect(b.match('<sdkVersion>', 'web-0.31.0'), isFalse);
     });
 
     test(r'${name} binds once', () {
@@ -124,7 +144,8 @@ void main() {
     {"direction": "rtc", "event": "iceConnectionState", "args": {"state": "disconnected"}},
     {"direction": "expectRtc", "call": "createDataChannel", "args": {"label": "reliable"}},
     {"direction": "expect", "event": "Joined", "fields": {"peerId": "p"}},
-    {"direction": "wait", "ms": 600}
+    {"direction": "wait", "ms": 600},
+    {"direction": "noOut", "ms": 10}
   ]
 }
 ''');
@@ -141,6 +162,7 @@ void main() {
         'ExpectRtcStep',
         'ExpectEventStep',
         'WaitStep',
+        'NoOutStep',
       ]);
       final api = fixture.steps[0] as ApiStep;
       expect(api.call, 'addTrack');
@@ -288,6 +310,7 @@ void main() {
             },
             {'direction': 'api', 'call': 'fail', 'error': 'StateError'},
             {'direction': 'wait', 'ms': 1},
+            {'direction': 'noOut', 'ms': 1},
             {'direction': 'close', 'code': 1000, 'reason': 'Room stopped'},
             {
               'direction': 'expect',

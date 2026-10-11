@@ -1,0 +1,321 @@
+{
+  "name": "simulcast_publish",
+  "description": "addTrack(video, simulcast low+high enabled, limit {high: 1200}): encodings l/m/h with scales 4/2/1, medium inactive, layer limits resolved against caps 150/500/1500 (SPEC \u00a712, \u00a713.3); bitrates reported per variant. Then disableTrackEncoding(low) and setEncodingBandwidth(medium, 9000) which is clamped to 500 (SPEC \u00a711.4, \u00a711.5).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "api",
+      "call": "addTrack",
+      "args": {
+        "kind": "video",
+        "metadata": {
+          "type": "camera",
+          "paused": false
+        },
+        "simulcastConfig": {
+          "enabled": true,
+          "enabledVariants": [
+            "low",
+            "high"
+          ]
+        },
+        "maxBandwidth": {
+          "high": 1200
+        }
+      },
+      "bind": "cam"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${cam}": "{\"type\":\"camera\",\"paused\":false}"
+            },
+            "trackIdToBitrates": {
+              "${cam}": {
+                "trackId": "${cam}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_LOW",
+                    "bitrate": 153600
+                  },
+                  {
+                    "variant": "VARIANT_MEDIUM",
+                    "bitrate": 512000
+                  },
+                  {
+                    "variant": "VARIANT_HIGH",
+                    "bitrate": 1228800
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "video",
+        "direction": "sendonly",
+        "sendEncodings": [
+          {
+            "rid": "l",
+            "active": true,
+            "maxBitrate": 153600,
+            "scaleResolutionDownBy": 4.0
+          },
+          {
+            "rid": "m",
+            "active": false,
+            "maxBitrate": 512000,
+            "scaleResolutionDownBy": 2.0
+          },
+          {
+            "rid": "h",
+            "active": true,
+            "maxBitrate": 1228800
+          }
+        ]
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "${cam}",
+          "simulcastConfig": {
+            "enabled": true,
+            "enabledVariants": [
+              "low",
+              "high"
+            ]
+          },
+          "maxBandwidth": {
+            "low": 150,
+            "medium": 500,
+            "high": 1200
+          }
+        }
+      }
+    },
+    {
+      "direction": "api",
+      "call": "disableTrackEncoding",
+      "args": {
+        "trackId": "${cam}",
+        "variant": "low"
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "setParameters",
+      "args": {
+        "encodings": [
+          {
+            "rid": "l",
+            "active": false,
+            "maxBitrate": 153600,
+            "scaleResolutionDownBy": 4.0
+          },
+          {
+            "rid": "m",
+            "active": false,
+            "maxBitrate": 512000,
+            "scaleResolutionDownBy": 2.0
+          },
+          {
+            "rid": "h",
+            "active": true,
+            "maxBitrate": 1228800
+          }
+        ]
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "disableTrackVariant": {
+            "trackId": "${cam}",
+            "variant": "VARIANT_LOW"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackEncodingDisabled",
+      "fields": {
+        "trackId": "${cam}",
+        "variant": "low"
+      }
+    },
+    {
+      "direction": "api",
+      "call": "setEncodingBandwidth",
+      "args": {
+        "trackId": "${cam}",
+        "variant": "medium",
+        "kbps": 9000
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "trackBitrates": {
+            "trackId": "${cam}",
+            "variantBitrates": [
+              {
+                "variant": "VARIANT_LOW",
+                "bitrate": 153600
+              },
+              {
+                "variant": "VARIANT_MEDIUM",
+                "bitrate": 512000
+              },
+              {
+                "variant": "VARIANT_HIGH",
+                "bitrate": 1228800
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackEncodingBandwidthSet",
+      "fields": {
+        "trackId": "${cam}",
+        "variant": "medium",
+        "kbps": 500
+      }
+    }
+  ]
+}

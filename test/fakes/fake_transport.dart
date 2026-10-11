@@ -179,4 +179,8 @@ class FakeTransportFactory {
   /// The next message sent on any transport that was not returned before.
   Future<PeerMessage> nextSent({Duration timeout = defaultSentTimeout}) =>
       _cursor.next(() => _log, timeout);
+
+  /// Messages sent but not yet returned by [nextSent].
+  List<PeerMessage> get unreadSent =>
+      _log.skip(_cursor._next).map(PeerMessage.fromBuffer).toList();
 }

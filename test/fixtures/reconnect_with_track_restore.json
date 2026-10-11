@@ -1,0 +1,352 @@
+{
+  "name": "reconnect_with_track_restore",
+  "description": "With addTracksOnReconnect, a retryable close while joined starts reconnection: after initialDelay a new socket authenticates, connects with the peer part of the last known metadata, emits Joined, re-publishes the live track under a new id and only then emits Reconnected. No Disconnected is emitted (SPEC \u00a76, D2, D9).",
+  "config": {
+    "reconnect": {
+      "maxAttempts": 3,
+      "initialDelayMs": 500,
+      "delayMs": 500,
+      "addTracksOnReconnect": true
+    }
+  },
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "api",
+      "call": "addTrack",
+      "args": {
+        "kind": "video",
+        "metadata": {
+          "type": "camera",
+          "paused": false
+        }
+      },
+      "bind": "cam"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${cam}": "{\"type\":\"camera\",\"paused\":false}"
+            },
+            "trackIdToBitrates": {
+              "${cam}": {
+                "trackId": "${cam}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "addTransceiver",
+      "args": {
+        "kind": "video",
+        "direction": "sendonly",
+        "sendEncodings": [
+          {
+            "active": true,
+            "maxBitrate": 1536000
+          }
+        ]
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${cam}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "${cam}",
+          "kind": "video",
+          "maxBandwidth": 1500,
+          "muted": false
+        }
+      }
+    },
+    {
+      "direction": "close",
+      "code": 1011,
+      "reason": "Internal server error"
+    },
+    {
+      "direction": "expect",
+      "event": "ReconnectionStarted",
+      "fields": {}
+    },
+    {
+      "direction": "noOut",
+      "ms": 400
+    },
+    {
+      "direction": "wait",
+      "ms": 200
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": []
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {
+              "${cam2}": "{\"type\":\"camera\",\"paused\":false}"
+            },
+            "trackIdToBitrates": {
+              "${cam2}": {
+                "trackId": "${cam2}",
+                "variantBitrates": [
+                  {
+                    "variant": "VARIANT_UNSPECIFIED",
+                    "bitrate": 1536000
+                  }
+                ]
+              }
+            },
+            "midToTrackId": {
+              "0": "${cam2}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {
+              "0": "${cam2}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackAdded",
+      "fields": {
+        "track": {
+          "trackId": "${cam2}",
+          "kind": "video"
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Reconnected",
+      "fields": {}
+    }
+  ]
+}

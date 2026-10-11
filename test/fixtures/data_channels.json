@@ -1,0 +1,255 @@
+{
+  "name": "data_channels",
+  "description": "createDataChannels(): exactly the labels \"reliable\" (ordered) and \"lossy\" (unordered, maxRetransmits 0), one negotiation, DataChannelsReady once both are open; publishData frames the payload as a ChannelMessage from the local peer to \"*\" (SPEC \u00a716).",
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "api",
+      "call": "createDataChannels"
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "renegotiateTracks": {}
+        }
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "createDataChannel",
+      "args": {
+        "label": "reliable",
+        "ordered": true
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "createDataChannel",
+      "args": {
+        "label": "lossy",
+        "ordered": false,
+        "maxRetransmits": 0
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "offerData": {
+            "tracksTypes": {
+              "audio": 0,
+              "video": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "sdpOffer": {
+            "sdp": "<sdp>",
+            "trackIdToMetadataJson": {},
+            "trackIdToBitrates": {},
+            "midToTrackId": {}
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "sdpAnswer": {
+            "sdp": "v=0\r\no=- 1 0 IN IP4 127.0.0.1\r\ns=fake-answer\r\n",
+            "midToTrackId": {}
+          }
+        }
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "dataChannelState",
+      "args": {
+        "label": "reliable",
+        "state": "open"
+      }
+    },
+    {
+      "direction": "rtc",
+      "event": "dataChannelState",
+      "args": {
+        "label": "lossy",
+        "state": "open"
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "DataChannelsReady",
+      "fields": {}
+    },
+    {
+      "direction": "api",
+      "call": "publishData",
+      "args": {
+        "reliable": true,
+        "data": [
+          104,
+          105
+        ]
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "dataChannelSend",
+      "args": {
+        "label": "reliable",
+        "data": [
+          10,
+          10,
+          108,
+          111,
+          99,
+          97,
+          108,
+          45,
+          112,
+          101,
+          101,
+          114,
+          18,
+          1,
+          42,
+          26,
+          4,
+          10,
+          2,
+          104,
+          105
+        ]
+      }
+    },
+    {
+      "direction": "api",
+      "call": "publishData",
+      "args": {
+        "reliable": false,
+        "data": [
+          1
+        ]
+      }
+    },
+    {
+      "direction": "expectRtc",
+      "call": "dataChannelSend",
+      "args": {
+        "label": "lossy",
+        "data": [
+          10,
+          10,
+          108,
+          111,
+          99,
+          97,
+          108,
+          45,
+          112,
+          101,
+          101,
+          114,
+          18,
+          1,
+          42,
+          26,
+          3,
+          10,
+          1,
+          1
+        ]
+      }
+    }
+  ]
+}
