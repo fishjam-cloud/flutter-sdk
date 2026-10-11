@@ -1,1 +1,1 @@
-Owner: **Data & Stats**. The 10 s `rtcStatsReport` and local audio level (SPEC §17, §18); read-only use of the peer connection.
+Owner: **Data & Stats**. The 10 s `rtcStatsReport` (SPEC §17); read-only use of the peer connection. The local audio level (SPEC §18) lives in `tracks/`.

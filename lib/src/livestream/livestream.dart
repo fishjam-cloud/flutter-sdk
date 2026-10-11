@@ -19,7 +19,7 @@ const defaultIceGatheringTimeout = Duration(seconds: 3);
 const defaultFirstStreamTimeout = Duration(seconds: 10);
 
 /// Maps a failed POST status to a [LivestreamError] (SPEC §19).
-LivestreamError livestreamErrorForStatus(
+LivestreamError _livestreamErrorForStatus(
   int statusCode, {
   required bool publishing,
 }) => switch (statusCode) {
@@ -100,8 +100,7 @@ class LivestreamConnection {
 /// the offer/answer exchange with [url] (SPEC §19).
 ///
 /// Every failure closes the connection and is thrown as a
-/// [LivestreamException]; HTTP errors are mapped by
-/// [livestreamErrorForStatus].
+/// [LivestreamException]; HTTP errors are mapped by status (SPEC §19).
 Future<LivestreamConnection> connectLivestream({
   required RtcAdapter adapter,
   required Uri url,
@@ -133,7 +132,7 @@ Future<LivestreamConnection> connectLivestream({
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw LivestreamException(
-        livestreamErrorForStatus(response.statusCode, publishing: publishing),
+        _livestreamErrorForStatus(response.statusCode, publishing: publishing),
         statusCode: response.statusCode,
       );
     }

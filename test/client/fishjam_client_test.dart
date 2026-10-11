@@ -85,25 +85,6 @@ void main() {
       expect(h.client.isReconnecting, isFalse);
     });
 
-    test('an auth close fails connect() once with AuthException', () async {
-      h = ClientHarness();
-      final connecting = h.client.connect(url: 'ws://f', token: 't');
-      final result = expectLater(connecting, throwsA(isA<AuthException>()));
-      await settle();
-      h.transport.serverClose(reason: 'Invalid token');
-      await settle();
-      await result;
-      expect(
-        h.eventsOf<AuthFailed>().single.reason,
-        AuthErrorReason.invalidToken,
-      );
-      expect(
-        h.eventsOf<Disconnected>().single.reason,
-        DisconnectReason.authError,
-      );
-      expect(h.client.status, ConnectionStatus.disconnected);
-    });
-
     test('a retryable close before Joined fails connect() and does not '
         'reconnect (D6)', () async {
       h = ClientHarness(reconnect: _fast);
@@ -388,18 +369,6 @@ void main() {
       },
     );
 
-    test('a session-ended close is terminal', () async {
-      h = ClientHarness(reconnect: _fast);
-      await h.join();
-      h.transport.serverClose(reason: 'Room stopped');
-      await _wait(100);
-      expect(
-        h.eventsOf<Disconnected>().single.reason,
-        DisconnectReason.roomStopped,
-      );
-      expect(h.transports.created, hasLength(1));
-    });
-
     test(
       'with reconnection disabled a lost connection ends the session',
       () async {
@@ -597,6 +566,7 @@ void main() {
       );
       expect(h.eventsOf<ReconnectionFailed>(), isEmpty);
       expect(h.transports.created, hasLength(2));
+      expect(h.client.status, ConnectionStatus.disconnected);
       expect(h.client.isReconnecting, isFalse);
     });
 

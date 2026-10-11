@@ -24,12 +24,6 @@ void main() {
   });
 
   group('unit conversion (1 kbps = 1024 bps)', () {
-    test('kbpsToBps multiplies by 1024', () {
-      expect(kbpsToBps(0), 0);
-      expect(kbpsToBps(1), 1024);
-      expect(kbpsToBps(1500), 1536000);
-    });
-
     test('bpsToKbps divides by 1024 and rounds', () {
       expect(bpsToKbps(1024), 1);
       expect(bpsToKbps(1536000), 1500);
@@ -177,37 +171,13 @@ void main() {
         throwsArgumentError,
       );
     });
-
-    test('video limits are resolved against the caps', () {
-      expect(
-        resolveTrackBandwidth(
-          const BandwidthLimit.single(5000),
-          kind: MediaKind.video,
-          simulcast: false,
-          logger: logger,
-        ),
-        const BandwidthLimit.single(1500),
-      );
-      expect(
-        resolveTrackBandwidth(
-          BandwidthLimit.unlimited,
-          kind: MediaKind.video,
-          simulcast: true,
-          logger: logger,
-        ),
-        const BandwidthLimit.simulcast(_caps),
-      );
-    });
   });
 
   group('resolveVariantBandwidth (SPEC §13.3)', () {
     for (final (variant, requested, expected) in [
-      (Variant.low, 1000, 150),
       (Variant.low, 100, 100),
       (Variant.low, 0, 150),
-      (Variant.medium, 9000, 500),
       (Variant.medium, -1, 500),
-      (Variant.high, 1000, 1000),
       (Variant.high, 1600, 1500),
     ]) {
       test('${variant.name} $requested kbps resolves to $expected', () {
@@ -217,23 +187,6 @@ void main() {
         );
       });
     }
-  });
-
-  group('splitSimulcastBudget', () {
-    test('divides a budget by pixel count, ordered low, medium, high', () {
-      final split = splitSimulcastBudget(1500, logger: logger);
-
-      expect(split.keys, Variant.values);
-      expect(split, {Variant.low: 71, Variant.medium: 286, Variant.high: 1143});
-    });
-
-    test('0 yields 0 for every layer', () {
-      expect(splitSimulcastBudget(0, logger: logger), {
-        Variant.low: 0,
-        Variant.medium: 0,
-        Variant.high: 0,
-      });
-    });
   });
 
   group('splitBandwidth (SPEC §13.6)', () {

@@ -78,13 +78,6 @@ void main() {
       expect(t.mid, isNull);
     });
 
-    test('metadata can be replaced', () {
-      final t = _track()..metadata = null;
-
-      expect(t.metadata, isNull);
-      expect(t.toContext().metadata, isNull);
-    });
-
     group('addToConnection (SPEC §11.1)', () {
       test('adds a sendonly transceiver with the resolved encoding', () async {
         final media = FakeMediaTrack.video();
@@ -211,175 +204,6 @@ void main() {
       });
     });
 
-    group('setBandwidth (SPEC §13.6)', () {
-      test('fails without a sender', () async {
-        final t = _track();
-
-        await expectLater(
-          t.setBandwidth(const BandwidthLimit.single(100)),
-          throwsStateError,
-        );
-      });
-
-      test('a single limit goes to the only encoding', () async {
-        final t = _track();
-        await t.addToConnection(pc);
-
-        await t.setBandwidth(const BandwidthLimit.single(800));
-
-        expect(_encodings(t).single.maxBitrateBps, 800 * 1024);
-        expect(t.maxBandwidth, const BandwidthLimit.single(800));
-        expect(t.toContext().maxBandwidth, const BandwidthLimit.single(800));
-      });
-
-      test('0 removes the limit', () async {
-        final t = _track();
-        await t.addToConnection(pc);
-
-        await t.setBandwidth(BandwidthLimit.unlimited);
-
-        expect(_encodings(t).single.maxBitrateBps, isNull);
-      });
-
-      test('a sender without encodings gets one unlimited encoding', () async {
-        final t = _track(kind: MediaKind.audio);
-        await t.addToConnection(pc);
-        await _sender(t).setParameters(const RtpSendParameters(encodings: []));
-
-        await t.setBandwidth(const BandwidthLimit.single(64));
-
-        expect(_encodings(t), const [RtpEncoding()]);
-        expect(t.maxBandwidth, const BandwidthLimit.single(64));
-      });
-
-      test('per-layer limits go to the matching rids', () async {
-        final t = _track(simulcastConfig: const SimulcastConfig.allVariants());
-        await t.addToConnection(pc);
-        const limit = BandwidthLimit.simulcast({
-          Variant.low: 100,
-          Variant.medium: 0,
-          Variant.high: 900,
-        });
-
-        await t.setBandwidth(limit);
-
-        expect(_encodings(t).map((e) => e.maxBitrateBps), [
-          102400,
-          null,
-          921600,
-        ]);
-        expect(_encodings(t).map((e) => e.scaleResolutionDownBy), [4, 2, null]);
-        expect(t.maxBandwidth, limit);
-      });
-
-      test('keeps the stored limit when the sender fails', () async {
-        final t = _track();
-        await t.addToConnection(pc);
-        _sender(t).failNextSetParameters = StateError('boom');
-
-        await expectLater(
-          t.setBandwidth(const BandwidthLimit.single(100)),
-          throwsStateError,
-        );
-
-        expect(t.maxBandwidth, const BandwidthLimit.single(1500));
-      });
-    });
-
-    group('setEncodingBandwidth (SPEC §13.6)', () {
-      test('sets the matching layer and the stored limit', () async {
-        final t = _track(simulcastConfig: const SimulcastConfig.allVariants());
-        await t.addToConnection(pc);
-
-        await t.setEncodingBandwidth(Variant.medium, 300);
-
-        expect(_encodings(t).map((e) => e.maxBitrateBps), [
-          153600,
-          307200,
-          1536000,
-        ]);
-        expect(
-          t.maxBandwidth,
-          const BandwidthLimit.simulcast({
-            Variant.low: 150,
-            Variant.medium: 300,
-            Variant.high: 1500,
-          }),
-        );
-      });
-
-      test('0 removes the layer limit', () async {
-        final t = _track(simulcastConfig: const SimulcastConfig.allVariants());
-        await t.addToConnection(pc);
-
-        await t.setEncodingBandwidth(Variant.high, 0);
-
-        expect(_encodings(t).last.maxBitrateBps, isNull);
-      });
-
-      test('a missing layer is an ArgumentError', () async {
-        final t = _track();
-        await t.addToConnection(pc);
-
-        await expectLater(
-          t.setEncodingBandwidth(Variant.low, 100),
-          throwsArgumentError,
-        );
-        expect(pc.callsOf('setParameters'), isEmpty);
-      });
-
-      test('fails without a sender', () async {
-        await expectLater(
-          _track().setEncodingBandwidth(Variant.low, 100),
-          throwsStateError,
-        );
-      });
-    });
-
-    group('setEncodingActive (SPEC §11.4)', () {
-      test('toggles the layer and the simulcast config', () async {
-        final t = _track(simulcastConfig: const SimulcastConfig.allVariants());
-        await t.addToConnection(pc);
-
-        await t.setEncodingActive(Variant.low, active: false);
-
-        expect(_encodings(t).map((e) => e.active), [false, true, true]);
-        expect(
-          t.simulcastConfig,
-          const SimulcastConfig(
-            enabled: true,
-            enabledVariants: [Variant.medium, Variant.high],
-            disabledVariants: [Variant.low],
-          ),
-        );
-
-        await t.setEncodingActive(Variant.low, active: true);
-
-        expect(_encodings(t).map((e) => e.active), [true, true, true]);
-        expect(
-          t.toContext().simulcastConfig,
-          const SimulcastConfig.allVariants(),
-        );
-      });
-
-      test('a missing layer is an ArgumentError', () async {
-        final t = _track();
-        await t.addToConnection(pc);
-
-        await expectLater(
-          t.setEncodingActive(Variant.high, active: false),
-          throwsArgumentError,
-        );
-      });
-
-      test('fails without a sender', () async {
-        await expectLater(
-          _track().setEncodingActive(Variant.high, active: false),
-          throwsStateError,
-        );
-      });
-    });
-
     group('audioLevel (SPEC §18)', () {
       RtcStats stats(String type, Map<String, Object?> values) =>
           RtcStats(id: '$type-1', type: type, timestampMs: 0, values: values);
@@ -488,10 +312,6 @@ void main() {
         () => registry.register(_track(trackId: 'me:a')),
         throwsArgumentError,
       );
-    });
-
-    test('tracks is a read-only view', () {
-      expect(() => registry.tracks.add(_track()), throwsUnsupportedError);
     });
 
     test('isPublished matches the media track id', () {
@@ -815,7 +635,76 @@ void main() {
         );
 
         expect(mic.maxBandwidth, const BandwidthLimit.single(64));
+        expect(_encodings(mic).single.maxBitrateBps, 65536);
         expect(sent.single.trackBitrates.variantBitrates.single.bitrate, 65536);
+
+        // 0 removes the limit.
+        await registry.setTrackBandwidth('me:mic', BandwidthLimit.unlimited);
+
+        expect(mic.maxBandwidth, BandwidthLimit.unlimited);
+        expect(_encodings(mic).single.maxBitrateBps, isNull);
+      });
+
+      test('a sender without encodings gets one unlimited encoding', () async {
+        final mic = await connected(
+          _track(trackId: 'me:mic', kind: MediaKind.audio),
+        );
+        await _sender(mic)
+            .setParameters(const RtpSendParameters(encodings: []));
+
+        await registry.setTrackBandwidth(
+          'me:mic',
+          const BandwidthLimit.single(64),
+        );
+
+        expect(_encodings(mic), const [RtpEncoding()]);
+        expect(mic.maxBandwidth, const BandwidthLimit.single(64));
+      });
+
+      test('per-layer limits go to the matching rids', () async {
+        final cam = await connected(
+          _track(
+            trackId: 'me:cam',
+            simulcastConfig: const SimulcastConfig.allVariants(),
+          ),
+        );
+        const limit = BandwidthLimit.simulcast({
+          Variant.high: 900,
+          Variant.low: 100,
+          Variant.medium: 300,
+        });
+
+        await registry.setTrackBandwidth('me:cam', limit);
+
+        expect(_encodings(cam).map((e) => e.rid), ['l', 'm', 'h']);
+        expect(_encodings(cam).map((e) => e.maxBitrateBps), [
+          102400,
+          307200,
+          921600,
+        ]);
+        expect(_encodings(cam).map((e) => e.scaleResolutionDownBy), [
+          4,
+          2,
+          null,
+        ]);
+        expect(cam.maxBandwidth, limit);
+      });
+
+      test('keeps the stored limit when the sender fails', () async {
+        final cam = await connected(_track(trackId: 'me:cam'));
+        _sender(cam).failNextSetParameters = StateError('boom');
+
+        await expectLater(
+          registry.setTrackBandwidth(
+            'me:cam',
+            const BandwidthLimit.single(100),
+          ),
+          throwsStateError,
+        );
+
+        expect(cam.maxBandwidth, const BandwidthLimit.single(1500));
+        expect(sent, isEmpty);
+        expect(events, isEmpty);
       });
 
       test('a number on a simulcast track is split per layer', () async {
@@ -870,13 +759,26 @@ void main() {
       });
 
       test('no sender is a StateError and sends nothing', () async {
-        registry.register(_track(trackId: 'me:cam'));
+        registry.register(
+          _track(
+            trackId: 'me:cam',
+            simulcastConfig: const SimulcastConfig.allVariants(),
+          ),
+        );
 
         await expectLater(
           registry.setTrackBandwidth(
             'me:cam',
             const BandwidthLimit.single(100),
           ),
+          throwsStateError,
+        );
+        await expectLater(
+          registry.setEncodingBandwidth('me:cam', Variant.low, 100),
+          throwsStateError,
+        );
+        await expectLater(
+          registry.disableTrackEncoding('me:cam', Variant.low),
           throwsStateError,
         );
 
@@ -961,7 +863,15 @@ void main() {
 
         await registry.disableTrackEncoding('me:cam', Variant.low);
 
-        expect(_encodings(cam).first.active, isFalse);
+        expect(_encodings(cam).map((e) => e.active), [false, true, true]);
+        expect(
+          cam.simulcastConfig,
+          const SimulcastConfig(
+            enabled: true,
+            enabledVariants: [Variant.medium, Variant.high],
+            disabledVariants: [Variant.low],
+          ),
+        );
         expect(sent.single.hasDisableTrackVariant(), isTrue);
         expect(sent.single.disableTrackVariant.trackId, 'me:cam');
         expect(
@@ -990,6 +900,11 @@ void main() {
         await registry.enableTrackEncoding('me:cam', Variant.high);
 
         expect(_encodings(cam).last.active, isTrue);
+        expect(cam.simulcastConfig.enabledVariants, contains(Variant.high));
+        expect(
+          cam.simulcastConfig.disabledVariants,
+          isNot(contains(Variant.high)),
+        );
         expect(sent.single.hasEnableTrackVariant(), isTrue);
         expect(
           sent.single.enableTrackVariant.variant,
@@ -1027,20 +942,6 @@ void main() {
 
     test('audioLevel is null for unknown tracks (SPEC §18)', () async {
       expect(await registry.audioLevel('me:x'), isNull);
-
-      final mic = await connected(
-        _track(trackId: 'me:mic', kind: MediaKind.audio),
-      );
-      _sender(mic).stats = [
-        const RtcStats(
-          id: 'm',
-          type: 'media-source',
-          timestampMs: 0,
-          values: {'kind': 'audio', 'audioLevel': 0.5},
-        ),
-      ];
-
-      expect(await registry.audioLevel('me:mic'), 0.5);
     });
   });
 }

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Fails when line coverage of hand-written library code is below the gate.
+# Fails when line coverage of hand-written library code is below the gate,
+# or when a library under lib/ has no coverage record (no test loads it, so
+# the gate cannot see it). Run from the repository root.
 #
 # Usage: tool/check_coverage.sh [lcov file] [minimum percent]
 #   defaults: coverage/lcov.info, 90
@@ -7,6 +9,9 @@
 # Excluded from the gate:
 #   lib/src/proto/**                      generated protobuf bindings
 #   lib/src/rtc/flutter_webrtc_adapter.dart  platform glue, covered by device tests
+# Never recorded (no executable code):
+#   lib/fishjam_client.dart               exports only
+#   lib/src/version.dart                  constants only
 set -euo pipefail
 
 LCOV="${1:-coverage/lcov.info}"
@@ -16,6 +21,19 @@ if [[ ! -f "$LCOV" ]]; then
   echo "coverage file $LCOV not found; run: flutter test --coverage" >&2
   exit 66
 fi
+
+unrecorded=0
+while IFS= read -r file; do
+  case "$file" in
+    lib/src/proto/* | lib/src/rtc/flutter_webrtc_adapter.dart | \
+      lib/fishjam_client.dart | lib/src/version.dart) continue ;;
+  esac
+  if ! grep -qx "SF:$file" "$LCOV"; then
+    echo "FAIL: $file has no coverage record; load it from a test" >&2
+    unrecorded=1
+  fi
+done < <(find lib -name '*.dart' | sort)
+if [[ $unrecorded -ne 0 ]]; then exit 1; fi
 
 awk -v min="$MIN" '
   /^SF:/ {

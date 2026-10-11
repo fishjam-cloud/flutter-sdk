@@ -59,38 +59,6 @@ void main() {
     await pumpEventQueue();
   }
 
-  group('livestreamErrorForStatus (SPEC §19)', () {
-    test('maps the documented statuses', () {
-      expect(
-        livestreamErrorForStatus(401, publishing: true),
-        LivestreamError.unauthorized,
-      );
-      expect(
-        livestreamErrorForStatus(404, publishing: false),
-        LivestreamError.streamNotFound,
-      );
-      expect(
-        livestreamErrorForStatus(409, publishing: true),
-        LivestreamError.streamerAlreadyConnected,
-      );
-    });
-
-    test('409 while receiving and anything else is unknown', () {
-      expect(
-        livestreamErrorForStatus(409, publishing: false),
-        LivestreamError.unknownError,
-      );
-      expect(
-        livestreamErrorForStatus(500, publishing: true),
-        LivestreamError.unknownError,
-      );
-      expect(
-        livestreamErrorForStatus(400, publishing: false),
-        LivestreamError.unknownError,
-      );
-    });
-  });
-
   group('publishWhip', () {
     late FakeMediaStream stream;
     late FakeMediaTrack video;

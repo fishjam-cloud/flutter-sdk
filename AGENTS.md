@@ -43,8 +43,8 @@ Run analyze, format and tests before every commit.
 - **Metadata JSON is never empty.** Encode with `encodeMetadataJson` (`null` → `"null"`), decode with
   `decodeMetadataJson` (SPEC §2.3).
 - **Errors in the media event loop never escape.** Unknown ids are logged and ignored (SPEC §7).
-- **New library files** must be added to `test/all_libraries_test.dart` (the test tells you), so coverage sees
-  them.
+- **New library files** must be loaded by at least one test: `tool/check_coverage.sh` fails for a file under
+  `lib/` with no coverage record.
 - **This repository is public.** Do not reference private infrastructure, private repositories, internal
   service names or server implementation details in code, comments, tests, commit messages or PRs. Describe
   server behavior only as observable protocol behavior.
@@ -58,7 +58,7 @@ Run analyze, format and tests before every commit.
 | `lib/src/engine/` | Engine | media event dispatch, negotiation state machine, command queue, peer connection, ICE |
 | `lib/src/tracks/` | Tracks | local/remote track state, simulcast encodings, bandwidth, variants, VAD |
 | `lib/src/data/` | Data & Stats | reliable/lossy data channels and `ChannelMessage` framing |
-| `lib/src/stats/` | Data & Stats | periodic stats report, local audio level |
+| `lib/src/stats/` | Data & Stats | periodic stats report |
 | `lib/src/livestream/` | Data & Stats | WHIP/WHEP |
 | `lib/src/models/`, `wire.dart`, `logger.dart`, `version.dart` | Architect | public types and shared helpers |
 | `lib/src/fishjam_client.dart`, `lib/src/livestream_api.dart`, `lib/fishjam_client.dart` | Integrator | the public facade; wiring and type conversion only |
