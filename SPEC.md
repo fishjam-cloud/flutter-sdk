@@ -108,8 +108,8 @@ idle ──connect()──▶ connecting ──authenticated──▶ authentica
 ### 3.3 `leave()`
 
 1. Send `peerMediaEvent.disconnect` **before** tearing anything down (it must reach the server).
-2. Cancel reconnection, stop stats, close data channels, close the peer connection, close the socket with
-   code 1000.
+2. Cancel reconnection, stop stats, close data channels, close the peer connection, release the local streams
+   the SDK created (the app's media tracks are taken out first, not stopped), close the socket with code 1000.
 3. Status `disconnected`; emit `Disconnected(DisconnectReason.left)` exactly once.
 4. Pending track operations fail with `StateError('disconnected')`.
 
@@ -215,9 +215,15 @@ serialized event handler ([§7](#7-media-event-processing)), so it is not a sepa
 | idle / requested | ICE connection state `disconnected` | send `renegotiateTracks` (logged as warning) | requested |
 | offerSent | ICE connection state `disconnected` | remember one restart request; when the cycle ends, send `renegotiateTracks` | offerSent |
 | any | `sdpAnswer` outside `offerSent` | logged and ignored | unchanged |
+| requested / offerSent | the cycle fails: `createOffer`, `setLocalDescription` or `setRemoteDescription` throws or takes longer than 10 s | fail the cycle's commands with the error; unregister the tracks whose `addTrack` failed and remove their senders; emit `ConnectionError(message)`, a retryable loss ([§6](#6-reconnection)) | idle |
 
 The server itself queues a `renegotiateTracks` received during a cycle, so it may start a new cycle with an
 `offerData` that is not preceded by `tracksAdded`. `offerData` in `idle` is therefore normal.
+
+A failed cycle cannot be recovered within the session: the server ends its cycle only when it receives an
+`sdpOffer`, and a failed `setRemoteDescription` leaves the peer connection's descriptions inconsistent. So it is
+handled as a connection failure and the session is replaced. Failures caused by tearing the session down are
+cancellations: nothing is logged as an error and no `ConnectionError` is emitted.
 
 ### 8.3 Command queue
 
@@ -354,8 +360,8 @@ limit)` / `LocalTrackEncodingBandwidthSet(trackId, variant, kbps)` — each exac
   - `offered` (in the `sdpOffer` in flight): store; after the answer is applied, send one
     `updateTrackMetadata` with the **latest** value.
   - `negotiated`: store, send `updateTrackMetadata{trackId, metadataJson}`.
-  `LocalTrackMetadataChanged(trackId, m)` is emitted when the update is sent, or at once for a `pending` track
-  (the coming offer carries it).
+  `LocalTrackMetadataChanged(trackId, m)` is emitted when the update is sent; a `pending` track emits nothing
+  (the coming offer carries the value and `LocalTrackAdded` reports it), as in the web SDK.
 
 ## 12. Simulcast
 
