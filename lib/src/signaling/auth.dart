@@ -13,10 +13,41 @@ import 'package:fishjam_client/src/signaling/transport.dart';
 const peerSocketPath = 'socket/peer/websocket';
 
 /// Builds the socket URL from the Fishjam [url] (SPEC §2.1): appends
-/// [peerSocketPath] without duplicating a trailing `/`.
-Uri peerSocketUrl(String url) => Uri.parse(
-  url.endsWith('/') ? '$url$peerSocketPath' : '$url/$peerSocketPath',
-);
+/// [peerSocketPath] to its path (a trailing `/` is not duplicated, a query
+/// string is kept); an `http` / `https` URL becomes `ws` / `wss`. Throws
+/// [ArgumentError] for any other scheme or a relative URL.
+Uri peerSocketUrl(String url) {
+  final parsed = Uri.tryParse(url);
+  final scheme = switch (parsed?.scheme) {
+    'ws' || 'http' => 'ws',
+    'wss' || 'https' => 'wss',
+    _ => null,
+  };
+  if (parsed == null || scheme == null || parsed.host.isEmpty) {
+    throw ArgumentError.value(
+      url,
+      'url',
+      'expected a ws, wss, http or https URL',
+    );
+  }
+  return parsed.replace(
+    scheme: scheme,
+    pathSegments: [
+      ...parsed.pathSegments.where((s) => s.isNotEmpty),
+      ...peerSocketPath.split('/'),
+    ],
+  );
+}
+
+/// The Fishjam URL for a Fishjam ID, as the web SDK resolves it: an
+/// `http(s)` URL is used as is, anything else is the ID of a Fishjam Cloud
+/// instance (from the developer dashboard).
+String fishjamUrlFromId(String fishjamId) {
+  if (RegExp('^https?://').hasMatch(fishjamId)) {
+    return Uri.parse(fishjamId).toString();
+  }
+  return 'https://fishjam.io/api/v1/connect/$fishjamId';
+}
 
 /// `reason.trim().toLowerCase()` (SPEC §4).
 String normalizeCloseReason(String reason) => reason.trim().toLowerCase();

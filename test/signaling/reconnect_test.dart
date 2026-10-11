@@ -248,7 +248,16 @@ void main() {
         async.flushMicrotasks();
 
         expect(host.restored, isEmpty);
-        expect(host.count('emit:Reconnected'), 1);
+        // Every old track id is reported removed, before Reconnected.
+        expect(
+          host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
+          ['t1'],
+        );
+        expect(host.calls.sublist(host.calls.length - 3), [
+          'emit:LocalTrackRemoved',
+          'releaseQueue',
+          'emit:Reconnected',
+        ]);
       });
     });
 
@@ -295,11 +304,18 @@ void main() {
           'restoreTrack:mic',
         ]);
         expect(host.restored, ['cam', 'mic']);
-        // Tracks that were not re-added are reported removed, in order,
-        // before Reconnected.
+        // Every old track id is reported removed, in order, before the
+        // first restore (restored tracks get new ids).
         expect(
           host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
-          ['ended', 'muted', 'broken'],
+          ['cam', 'ended', 'muted', 'broken', 'mic'],
+        );
+        final firstRestore = host.calls.indexOf('restoreTrack:cam');
+        expect(
+          host.calls
+              .sublist(0, firstRestore)
+              .where((c) => c == 'emit:LocalTrackRemoved'),
+          hasLength(5),
         );
         expect(host.calls.sublist(host.calls.length - 2), [
           'releaseQueue',
@@ -338,6 +354,17 @@ void main() {
 
         async.elapse(const Duration(milliseconds: 1000));
         expect(host.count('startSession'), 2);
+
+        // The next attempt restores the snapshot again, but the old ids
+        // were already reported removed.
+        unawaited(m.onSessionJoined());
+        async.flushMicrotasks();
+        expect(
+          host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
+          ['cam', 'mic'],
+        );
+        expect(host.count('restoreTrack:cam'), 2);
+        expect(host.count('emit:Reconnected'), 1);
       });
     });
   });

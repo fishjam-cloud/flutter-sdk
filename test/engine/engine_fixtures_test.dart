@@ -5,7 +5,7 @@ import 'engine_harness.dart';
 /// Replays the negotiation fixtures against the engine with fake Tracks.
 /// Steps that only exercise other modules (sender encodings, remote
 /// variants and voice activity) are skipped; the full fixtures run against
-/// the client once every module is in place.
+/// the client in test/client/client_fixtures_test.dart.
 void main() {
   group('engine-level fixture replay', () {
     test('publish_one_track', () async {

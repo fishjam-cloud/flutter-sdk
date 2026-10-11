@@ -30,6 +30,50 @@ void main() {
         Uri.parse('wss://fishjam.test/app/socket/peer/websocket'),
       );
     });
+
+    test('keeps a query string', () {
+      expect(
+        peerSocketUrl('wss://fishjam.test/app/?region=eu'),
+        Uri.parse('wss://fishjam.test/app/socket/peer/websocket?region=eu'),
+      );
+    });
+
+    test('rejects other schemes and relative URLs', () {
+      expect(() => peerSocketUrl('ftp://fishjam.test'), throwsArgumentError);
+      expect(() => peerSocketUrl('fishjam.test/app'), throwsArgumentError);
+      expect(() => peerSocketUrl(''), throwsArgumentError);
+    });
+
+    test('turns http and https URLs into ws and wss', () {
+      expect(
+        peerSocketUrl('https://fishjam.test/app'),
+        Uri.parse('wss://fishjam.test/app/socket/peer/websocket'),
+      );
+      expect(
+        peerSocketUrl('http://localhost:8080/'),
+        Uri.parse('ws://localhost:8080/socket/peer/websocket'),
+      );
+    });
+  });
+
+  group('fishjamUrlFromId', () {
+    test('a Fishjam ID resolves to its connect URL', () {
+      expect(
+        fishjamUrlFromId('abc123'),
+        'https://fishjam.io/api/v1/connect/abc123',
+      );
+    });
+
+    test('an http(s) URL is used as is', () {
+      expect(
+        fishjamUrlFromId('http://localhost:8080/'),
+        'http://localhost:8080/',
+      );
+      expect(
+        fishjamUrlFromId('https://fishjam.test/connect/x'),
+        'https://fishjam.test/connect/x',
+      );
+    });
   });
 
   test('normalizeCloseReason trims and lowercases (SPEC §4)', () {

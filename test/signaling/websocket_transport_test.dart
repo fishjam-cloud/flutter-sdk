@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/signaling/transport.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,7 +26,13 @@ void main() {
       serverSide.complete(socket);
     });
     addTearDown(server.close);
-    final transport = WebSocketTransport();
+    final logs = <String>[];
+    final transport = WebSocketTransport(
+      logger: FishjamLogger(
+        enabled: true,
+        sink: (level, message, {error, stackTrace}) => logs.add(message),
+      ),
+    );
 
     await transport.connect(url);
     expect(transport.isOpen, isTrue);
@@ -40,6 +47,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(received.single, [1, 2, 3]);
     expect(incoming.single, [4, 5]);
+    expect(logs.single, contains('text frame'));
     await transport.close();
   });
 

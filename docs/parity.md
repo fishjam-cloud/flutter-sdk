@@ -1,24 +1,27 @@
 # Parity with the Fishjam web SDK (`@fishjam-cloud/ts-client`)
 
-Every public API of the web client and its Dart equivalent. "Dropped" entries are intentional; the reason is
-given. Behavioral differences are listed in [SPEC §22](../SPEC.md#22-deviations-from-the-web-sdk).
+Every public API of the web client and its Dart equivalent. Every row is implemented; "dropped" entries are
+intentional and give the reason. Behavioral differences are listed in
+[SPEC §22](../SPEC.md#22-deviations-from-the-web-sdk). The golden fixtures (`test/fixtures/`) are replayed
+against the real `FishjamClient` in `test/client/client_fixtures_test.dart`.
 
 ## `FishjamClient` construction and state
 
 | Web SDK | Dart | Notes |
 |---|---|---|
-| `new FishjamClient({ reconnect, debug, clientType })` | `FishjamClient(debug:, reconnect:, rtcAdapter:, transportFactory:)` | `clientType` dropped: always `flutter`. Adapters are injectable for tests. |
+| `new FishjamClient({ reconnect, debug, clientType })` | `FishjamClient(debug:, reconnect:)` | `clientType` dropped: always `flutter`. Test hooks are internal (`FishjamClient.internal`). |
 | `reconnect: boolean \| ReconnectConfig` | `ReconnectConfig` (default enabled), `ReconnectConfig.disabled` | delays are `Duration`s |
 | `status: 'new' \| 'initialized'` | `status` → `ConnectionStatus` | richer state (SPEC §3.1) |
 | `isReconnecting()` | `isReconnecting` | |
 | `on(event, cb)` / `off(event, cb)` | `events` (`Stream<FishjamEvent>`), cancel the subscription | sealed classes, exhaustive `switch` |
-| `cleanup()` | `dispose()` | |
+| `cleanup()` | `dispose()` | also leaves and ends every `dataStream` and `events` |
 
 ## Connection
 
 | Web SDK | Dart | Notes |
 |---|---|---|
-| `connect({ url, token, peerMetadata })` | `connect(url:, token:, peerMetadata:)` | always settles (SPEC §3.2) |
+| `connect({ url, token, peerMetadata })` | `connect(url:, token:, peerMetadata:)` | always settles (SPEC §3.2); only ws/wss/http/https URLs |
+| react-client `resolveFishjamUrl(fishjamId)` | `fishjamUrlFromId(fishjamId)` | same format (SPEC §2.1) |
 | `leave()` | `leave()` | sends `disconnect`, then tears down (D1) |
 | `disconnect()` | `leave()` | one method: leaving always tears down |
 | `handleSdkDeprecation(...)` | internal | logged (SPEC §3.2) |
@@ -59,7 +62,7 @@ given. Behavioral differences are listed in [SPEC §22](../SPEC.md#22-deviations
 
 | Web SDK | Dart | Notes |
 |---|---|---|
-| `createDataChannels()` | `createDataChannels()` | |
+| `createDataChannels()` | `createDataChannels()` | per session, as in the web SDK: create them again after `Reconnected`; fails with `StateError` (no event) before `Joined` or while reconnecting |
 | `publishData(data, { reliable })` | `publishData(Uint8List, reliable:)` | |
 | `subscribeData(cb, { reliable })` → unsubscribe fn | `dataStream(reliable:)` → `Stream<Uint8List>` | cancel the subscription to unsubscribe |
 | `getDataChannelsReadiness()` | `dataChannelsReady` | |
@@ -125,10 +128,10 @@ given. Behavioral differences are listed in [SPEC §22](../SPEC.md#22-deviations
 | `disconnected` | `Disconnected(reason)` | never during reconnection (D9) |
 | `disconnectRequested` | dropped | `Disconnected(DisconnectReason.left)` |
 | `reconnectionStarted` | `ReconnectionStarted` | |
-| `reconnected` | `Reconnected` | always follows a successful reconnection (D2) |
+| `reconnected` | `Reconnected` | always follows a successful reconnection (D2); old local track ids get `LocalTrackRemoved` first (D21) |
 | `reconnectionRetriesLimitReached` | `ReconnectionFailed` | |
 | `connectionError` | `ConnectionError(message)` | |
-| `peerJoined` / `peerLeft` / `peerUpdated` | `PeerJoined` / `PeerLeft` / `PeerUpdated` | |
+| `peerJoined` / `peerLeft` / `peerUpdated` | `PeerJoined` / `PeerLeft` / `PeerUpdated` | on reconnect, old peers and tracks are reported removed before the new `Joined` (D22) |
 | `componentAdded` / `componentRemoved` / `componentUpdated` | `ComponentAdded` / `ComponentRemoved` / `ComponentUpdated` | |
 | `trackAdded` / `trackReady` / `trackRemoved` / `trackUpdated` | `TrackAdded` / `TrackReady` / `TrackRemoved` / `TrackUpdated` | |
 | `encodingChanged` (client and track context) | `TrackEncodingChanged` | |

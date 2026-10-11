@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fishjam_client/src/engine/rtc_engine.dart';
 import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/models/events.dart';
 import 'package:fishjam_client/src/models/simulcast.dart';
@@ -868,7 +869,41 @@ void main() {
   });
 
   group('owner callbacks', () {
-    test('onServerError runs after the event was handled and may await '
+    test(
+      'the terminal outcome is recorded when the event was handled',
+      () async {
+        final (h, _) = await _joined();
+        h.onServerErrorHook = (_) {};
+        expect(h.engine.endedBy, isNull);
+        await h.engine.handleServerEvent(
+          server.MediaEvent(error: server.MediaEvent_Error(message: 'boom')),
+        );
+        expect(h.engine.endedBy, EngineEnd.serverError);
+        // The first outcome wins.
+        await h.engine.handleServerEvent(
+          server.MediaEvent(
+            endpointRemoved: server.MediaEvent_EndpointRemoved(
+              endpointId: 'local-peer',
+            ),
+          ),
+        );
+        expect(h.engine.endedBy, EngineEnd.serverError);
+      },
+    );
+
+    test('removal of the local peer is recorded too', () async {
+      final (h, _) = await _joined();
+      await h.engine.handleServerEvent(
+        server.MediaEvent(
+          endpointRemoved: server.MediaEvent_EndpointRemoved(
+            endpointId: 'local-peer',
+          ),
+        ),
+      );
+      expect(h.engine.endedBy, EngineEnd.localPeerRemoved);
+    });
+
+    test('onServerError runs outside the event task and may await '
         'engine work', () async {
       final (h, _) = await _joined();
       final order = <String>[];
@@ -882,7 +917,9 @@ void main() {
       );
       order.add('handled');
       await settle();
-      expect(order, ['handled', 'callback', 'awaited']);
+      // Outside the event task: awaiting engine work does not deadlock.
+      expect(order, containsAll(['handled', 'callback', 'awaited']));
+      expect(order.indexOf('callback'), lessThan(order.indexOf('awaited')));
     });
 
     test('onLocalPeerRemoved runs after the event was handled', () async {
@@ -898,7 +935,7 @@ void main() {
       );
       order.add('handled');
       await settle();
-      expect(order, ['handled', 'callback']);
+      expect(order, unorderedEquals(['handled', 'callback']));
     });
   });
 

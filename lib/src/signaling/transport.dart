@@ -9,6 +9,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fishjam_client/src/logger.dart';
 import 'package:meta/meta.dart';
 
 /// Why a transport closed.
@@ -95,11 +96,17 @@ typedef SignalingTransportFactory = SignalingTransport Function();
 /// interval the socket is closed and [onClose] reports a closure without a
 /// code (SPEC §2.1).
 final class WebSocketTransport implements SignalingTransport {
-  /// Creates a transport; the socket is opened by [connect].
-  WebSocketTransport({this.pingInterval = const Duration(seconds: 15)});
+  /// Creates a transport; the socket is opened by [connect]. Ignored text
+  /// frames are logged at debug level with [logger].
+  WebSocketTransport({
+    this.pingInterval = const Duration(seconds: 15),
+    FishjamLogger? logger,
+  }) : _logger = logger ?? FishjamLogger.disabled();
 
   /// Interval between client pings, and the pong timeout.
   final Duration pingInterval;
+
+  final FishjamLogger _logger;
 
   WebSocket? _socket;
   final _incoming = StreamController<Uint8List>();
@@ -130,6 +137,8 @@ final class WebSocketTransport implements SignalingTransport {
           _incoming.add(data);
         } else if (data is List<int>) {
           _incoming.add(Uint8List.fromList(data));
+        } else {
+          _logger.debug('Ignoring a text frame from the server');
         }
       },
       onError: (Object e) => _finish(TransportClosed(error: e)),

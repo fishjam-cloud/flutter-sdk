@@ -15,6 +15,8 @@ The toolchain (Flutter, protoc) is pinned in `mise.toml`. Prefix every command w
 | Tests | `mise exec -- flutter test` |
 | Coverage gate (≥ 90 %) | `mise exec -- flutter test --coverage && tool/check_coverage.sh` |
 | Regenerate protobuf bindings | `mise exec -- tool/gen_protos.sh <path to a fishjam-cloud/protos checkout>` |
+| Build the example app (iOS simulator) | `cd example && mise exec -- flutter build ios --simulator --no-codesign` |
+| Integration tests (running Fishjam server) | `tool/run_integration.sh` (see `example/integration_test/README.md`) |
 
 Run analyze, format and tests before every commit.
 

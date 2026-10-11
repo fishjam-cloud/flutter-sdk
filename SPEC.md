@@ -29,7 +29,11 @@ Conventions:
 
 ### 2.1 Transport
 
-- URL: `<url>/socket/peer/websocket`. A single trailing `/` on `<url>` is not duplicated.
+- URL: `<url>` with `/socket/peer/websocket` appended to its path. A trailing `/` on the path is not
+  duplicated and a query string is kept. An `http` / `https` URL is connected as `ws` / `wss`; any other scheme
+  (or a relative URL) makes `connect()` fail with `ArgumentError` before anything is opened.
+- `fishjamUrlFromId(id)` resolves a Fishjam ID as the web SDK does: an `http(s)` URL is used as is, anything
+  else becomes `https://fishjam.io/api/v1/connect/<id>`.
 - Every frame in both directions is **binary** and contains exactly one `fishjam.PeerMessage`.
 - Text frames from the server are ignored (logged at debug level).
 - The server pings every 30 s. The client additionally sends its own pings (interval 15 s) and treats a
@@ -107,19 +111,28 @@ idle ──connect()──▶ connecting ──authenticated──▶ authentica
 
 ### 3.3 `leave()`
 
-1. Send `peerMediaEvent.disconnect` **before** tearing anything down (it must reach the server).
-2. Cancel reconnection, stop stats, close data channels, close the peer connection, release the local streams
-   the SDK created (the app's media tracks are taken out first, not stopped), close the socket with code 1000.
-3. Status `disconnected`; emit `Disconnected(DisconnectReason.left)` exactly once.
-4. Pending track operations fail with `StateError('disconnected')`.
+1. Cancel reconnection (the held queue is cleared) and stop stats.
+2. Close the data channels, so a pending `createDataChannels()` is cancelled quietly instead of failing
+   through the closing peer connection.
+3. Send `peerMediaEvent.disconnect` while the socket and peer connection are still up, so it reaches the
+   server (D1).
+4. Close the peer connection and release the local streams the SDK created (the app's media tracks are taken
+   out first, not stopped); pending track operations fail with `StateError('disconnected')`.
+5. Close the socket with code 1000.
+6. Status `disconnected`; emit `Disconnected(DisconnectReason.left)` exactly once.
+
+On a dead network the socket close waits for the close handshake, so `leave()` can take up to about 5 s to
+complete; the status is `disconnected` from its start.
 
 ### 3.4 Server-initiated end
 
-- `endpointRemoved` whose `endpointId` is the local peer: tear down as in §3.3 steps 2–4 (no `disconnect`
-  is sent), emit `Disconnected(DisconnectReason.peerRemoved)`.
+- `endpointRemoved` whose `endpointId` is the local peer: tear down as in §3.3 (no `disconnect` is sent),
+  emit `Disconnected(DisconnectReason.peerRemoved)`.
 - `serverMediaEvent.error{message}`: emit `ServerError(message)`, then behave as `leave()` but emit
   `Disconnected(DisconnectReason.serverError)`.
-- Socket close: classified by [§4](#4-close-reasons).
+- Socket close: classified by [§4](#4-close-reasons). The events received before the close are handled
+  first; if one of them was one of the two above, the session ends as that event says (the outcome is
+  recorded while the event is handled), not as a lost connection.
 
 ## 4. Close reasons
 
@@ -167,15 +180,23 @@ States: `idle`, `reconnecting`, `failed`.
 | reconnecting | retryable loss in the new session before `connected` (including a new session that cannot be started at all) | schedule next attempt if attempts remain | reconnecting |
 | reconnecting | retryable loss, no attempts left | clear queue; emit `ReconnectionFailed`, then `Disconnected(DisconnectReason.reconnectionFailed)` | failed |
 | reconnecting | terminal close (auth/join/session ended/protocol) | cancel timer; clear queue; emit the matching error event and `Disconnected` | failed |
-| reconnecting | `connected` | emit `Joined`; if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks); emit `LocalTrackRemoved(oldTrackId)` for every snapshotted track that is not re-added (ended, muted, or its re-add failed); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
+| reconnecting | `connected` | emit `TrackRemoved` for every remote track and then `PeerLeft` / `ComponentRemoved` for every remote endpoint the app was told about by the lost session; emit `Joined` (its snapshot is the source of truth); emit `LocalTrackRemoved(oldTrackId)` for every snapshotted track (once per reconnection, also without `addTracksOnReconnect`); if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
 | any | `leave()` | cancel timer; clear queue | idle |
 
 - Delay of attempt `n` (1-based) is `initialDelay + (n - 1) * delay`.
 - Only one attempt timer exists at a time; triggers while a timer is pending are ignored.
 - Failures before the first `Joined` of a `connect()` call never start reconnection ([§3.2](#32-connect)).
-- A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it.
-- A **muted** track (no media track) is not re-added: there is nothing to publish. The app is told with
-  `LocalTrackRemoved` and adds the track again when it unmutes.
+- From the moment a loss is accepted for reconnection until `Reconnected`, the status is `reconnecting` (also
+  after the new session's `Joined`, while tracks are restored). The lost session reports nothing more: none
+  of its events are forwarded and its close or failure is ignored. App operations that need the session (track
+  operations, metadata updates, `setTargetTrackEncoding`, `createDataChannels()`) fail at once with a
+  `StateError` naming the reconnecting state; nothing is queued for later.
+- Every local track id of the lost session ends with `LocalTrackRemoved`: the tracks went away with the
+  session. A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it after the removals.
+  If an attempt that already re-added tracks is lost before `Reconnected`, those new ids are reported
+  removed when the next attempt starts.
+- A **muted** track (no media track) is not re-added: there is nothing to publish. The app adds the track
+  again when it unmutes.
 
 ## 7. Media event processing
 
@@ -488,6 +509,8 @@ snapshots.
   - label `reliable`, `ordered: true`;
   - label `lossy`, `ordered: false`, `maxRetransmits: 0`.
   The server rejects any other label.
+- `createDataChannels()` before `Joined` or while reconnecting fails with `StateError` at the call site and
+  emits nothing.
 - `createDataChannels()` is a batchable negotiating command ([§8.3](#83-command-queue)); it is a no-op when both
   channels are already open, and completes when both are open (`DataChannelsReady` is emitted once). It fails
   with the error if either channel errors or closes before opening (`DataChannelsError` emitted).
@@ -566,7 +589,7 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 
 | # | Web SDK behavior | This SDK | Why |
 |---|---|---|---|
-| D1 | `disconnect()` removes listeners before sending `disconnect`, so the event never reaches the server | `disconnect` is sent first (§3.3) | graceful leave |
+| D1 | `disconnect()` removes listeners before sending `disconnect`, so the event never reaches the server | `disconnect` is sent while the peer connection and socket are still up (§3.3) | graceful leave |
 | D2 | One ended track aborts track restoration; reconnection never completes and the queue is held forever | ended tracks are skipped; `Reconnected` always follows (§6) | liveness |
 | D3 | `disableTrackEncoding` emits the "enabled" event | correct event (§11.4) | bug |
 | D4 | bandwidth-set event fires twice; encoding-bandwidth event never reaches the app | each once (§11.5) | bug |
@@ -586,6 +609,8 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D18 | `tracksPriorityChanged`, `bandwidthEstimationChanged`, `getBandwidthEstimation` exist but are never fed | dropped | dead API |
 | D19 | ICE `disconnected` sends `renegotiateTracks` even mid-cycle | deferred until the cycle ends (§8.2) | keeps client and server in step |
 | D20 | a failed `replaceTrack` is swallowed; the call succeeds | rolled back, then the call fails with the error (§11.3) | the app learns the media was not replaced |
+| D21 | local track ids of the lost session silently disappear on reconnect | `LocalTrackRemoved` for every old id; restored tracks get `LocalTrackAdded` with new ids (§6) | apps can drop stale ids |
+| D22 | remote peers and tracks of the lost session are kept and re-announced with `peerJoined` / `trackAdded` after reconnecting | `TrackRemoved` and `PeerLeft` / `ComponentRemoved` for all of them before the new `Joined`, whose snapshot is the source of truth (§6) | no stale or duplicate remote state |
 
 ## 23. Golden fixtures
 
