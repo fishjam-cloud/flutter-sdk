@@ -67,9 +67,8 @@ BandwidthLimit resolveVideoBandwidth(
 
   final layers = switch (requested) {
     SimulcastBandwidthLimit(:final kbpsPerVariant) => kbpsPerVariant,
-    SingleBandwidthLimit(:final kbps) when kbps > 0 => splitSimulcastBudget(
+    SingleBandwidthLimit(:final kbps) when kbps > 0 => _splitSimulcastBudget(
       kbps,
-      logger: logger,
     ),
     SingleBandwidthLimit() => const <Variant, int>{},
   };
@@ -119,10 +118,7 @@ int resolveVariantBandwidth(
 
 /// Splits a total budget across the simulcast layers by pixel count
 /// (SPEC §13.3); result keys are ordered low, medium, high.
-Map<Variant, int> splitSimulcastBudget(
-  int kbps, {
-  required FishjamLogger logger,
-}) {
+Map<Variant, int> _splitSimulcastBudget(int kbps) {
   final bps = _splitBps([
     for (final v in Variant.values) simulcastLayerScale[v],
   ], kbpsToBps(kbps));

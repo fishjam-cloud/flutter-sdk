@@ -180,15 +180,13 @@ class LocalTrack {
     _maxBandwidth = resolved;
   }
 
-  /// Applies an already resolved layer limit (SPEC §13.6) and stores it.
-  /// Throws [ArgumentError] when the sender has no such layer, [StateError]
-  /// without a sender.
+  /// Applies an already resolved, positive layer limit (SPEC §13.6) and
+  /// stores it. Throws [ArgumentError] when the sender has no such layer,
+  /// [StateError] without a sender.
   Future<void> setEncodingBandwidth(Variant variant, int resolvedKbps) async {
     await _updateEncoding(
       variant,
-      (e) => resolvedKbps > 0
-          ? e.copyWith(maxBitrateBps: kbpsToBps(resolvedKbps))
-          : e.copyWith(clearMaxBitrate: true),
+      (e) => e.copyWith(maxBitrateBps: kbpsToBps(resolvedKbps)),
     );
     if (_maxBandwidth case SimulcastBandwidthLimit(:final kbpsPerVariant)) {
       _maxBandwidth = BandwidthLimit.simulcast({
