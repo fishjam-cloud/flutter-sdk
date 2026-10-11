@@ -18,8 +18,13 @@ class JoinScreen extends StatefulWidget {
 class _JoinScreenState extends State<JoinScreen> {
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController(text: 'flutter');
-  final _fishjamUrl = TextEditingController();
-  final _peerToken = TextEditingController();
+  // Optional prefill: flutter run --dart-define=FISHJAM_ID=... --dart-define=PEER_TOKEN=...
+  final _fishjamUrl = TextEditingController(
+    text: const String.fromEnvironment('FISHJAM_ID'),
+  );
+  final _peerToken = TextEditingController(
+    text: const String.fromEnvironment('PEER_TOKEN'),
+  );
   final _sandboxUrl = TextEditingController();
   final _roomName = TextEditingController(text: 'flutter-room');
   _Mode _mode = _Mode.peerToken;
