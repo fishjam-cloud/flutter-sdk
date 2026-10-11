@@ -39,4 +39,5 @@ export 'src/rtc/rtc_adapter.dart'
         RtcMediaStream,
         RtcMediaTrack,
         RtcStats;
+export 'src/tracks/bandwidth.dart' show simulcastCapsKbps, singleStreamCapKbps;
 export 'src/version.dart' show packageVersion;

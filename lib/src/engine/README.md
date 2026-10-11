@@ -1,0 +1,1 @@
+Owner: **Engine**. Per-session media engine: serialized media event dispatch, the negotiation state machine, the command queue, the peer connection and ICE (SPEC §7–§10); delegates track state to `tracks/` and channels to `data/`.
