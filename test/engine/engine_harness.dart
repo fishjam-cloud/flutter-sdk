@@ -10,7 +10,7 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/peer/peer.pb.dart'
     as peer;
 import 'package:fishjam_client/src/proto/fishjam/media_events/server/server.pb.dart'
     as server;
-import 'package:fishjam_client/src/tracks/local_track.dart';
+import 'package:fishjam_client/src/tracks/local_track_registry.dart';
 import 'package:fishjam_client/src/tracks/remote_track.dart';
 
 import '../fakes/fake_rtc.dart';

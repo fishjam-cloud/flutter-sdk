@@ -16,6 +16,7 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/shared.pb.dart'
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:fishjam_client/src/tracks/bandwidth.dart';
 import 'package:fishjam_client/src/tracks/local_track.dart';
+import 'package:fishjam_client/src/tracks/local_track_registry.dart';
 import 'package:fishjam_client/src/tracks/remote_track.dart';
 import 'package:fishjam_client/src/wire.dart';
 

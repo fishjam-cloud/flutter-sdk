@@ -20,6 +20,7 @@ import 'package:fishjam_client/src/signaling/signaling_session.dart';
 import 'package:fishjam_client/src/signaling/transport.dart';
 import 'package:fishjam_client/src/stats/stats_reporter.dart';
 import 'package:fishjam_client/src/tracks/local_track.dart';
+import 'package:fishjam_client/src/tracks/local_track_registry.dart';
 import 'package:fishjam_client/src/tracks/remote_track.dart';
 import 'package:fishjam_client/src/version.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' show MediaStreamTrack;

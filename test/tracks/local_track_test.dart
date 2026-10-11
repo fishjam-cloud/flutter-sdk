@@ -8,6 +8,7 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/shared.pbenum.dart
     as shared;
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:fishjam_client/src/tracks/local_track.dart';
+import 'package:fishjam_client/src/tracks/local_track_registry.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_rtc.dart';
