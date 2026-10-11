@@ -123,6 +123,9 @@ void main() {
       expect(alice.dataChannelsReady && bob.dataChannelsReady, isTrue);
       final toBob = bob.dataStream(reliable: true).first.timeout(_timeout);
       final toAlice = alice.dataStream(reliable: false).first.timeout(_timeout);
+      // A channel is open on the client before the server routes it to other
+      // peers; messages sent in that gap are dropped by the server.
+      await Future<void>.delayed(const Duration(seconds: 1));
       alice.publishData(utf8.encode('hello bob'), reliable: true);
       bob.publishData(Uint8List.fromList([1, 2, 3]), reliable: false);
       expect(utf8.decode(await toBob), 'hello bob');
