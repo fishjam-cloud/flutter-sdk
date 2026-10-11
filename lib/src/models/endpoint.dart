@@ -1,6 +1,3 @@
-/// Public endpoint models: peers and components (SPEC §14.1). Owner: Architect.
-library;
-
 import 'package:collection/collection.dart';
 import 'package:fishjam_client/src/models/track.dart';
 import 'package:meta/meta.dart';
@@ -8,10 +5,9 @@ import 'package:meta/meta.dart';
 /// Endpoint metadata as reported by the server.
 @immutable
 final class Metadata {
-  /// Creates metadata.
   const Metadata({this.peer, this.server});
 
-  /// Builds metadata from a decoded server value (SPEC §2.3): an object
+  /// Builds metadata from a decoded server value: an object
   /// `{"peer": …, "server": …}` is split, anything else becomes [peer].
   factory Metadata.fromServerJson(Object? json) {
     if (json is Map<String, Object?> &&
@@ -52,7 +48,6 @@ const componentEndpointTypes = {'recording', 'hls', 'file', 'rtsp', 'sip'};
 /// Another client in the room.
 @immutable
 final class Peer {
-  /// Creates a peer snapshot.
   const Peer({
     required this.id,
     required this.type,
@@ -60,13 +55,11 @@ final class Peer {
     this.tracks = const {},
   });
 
-  /// Peer id.
   final String id;
 
   /// Endpoint type as reported by the server.
   final String type;
 
-  /// Peer metadata.
   final Metadata metadata;
 
   /// Tracks published by the peer, by track id.
@@ -79,7 +72,6 @@ final class Peer {
 /// A server-side media producer in the room (recording, stream ingest, …).
 @immutable
 final class Component {
-  /// Creates a component snapshot.
   const Component({
     required this.id,
     required this.type,
@@ -87,13 +79,11 @@ final class Component {
     this.tracks = const {},
   });
 
-  /// Component id.
   final String id;
 
   /// One of [componentEndpointTypes].
   final String type;
 
-  /// Component metadata.
   final Metadata metadata;
 
   /// Tracks published by the component, by track id.
@@ -106,7 +96,6 @@ final class Component {
 /// This client as a member of the room.
 @immutable
 final class LocalPeer {
-  /// Creates a local peer snapshot.
   const LocalPeer({
     required this.id,
     required this.metadata,

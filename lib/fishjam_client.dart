@@ -1,7 +1,4 @@
-/// Fishjam client SDK for Flutter.
-///
-/// Start with `FishjamClient`. See SPEC.md in the repository for the
-/// behavioral contract.
+/// Fishjam client SDK for Flutter. Start with `FishjamClient`.
 library;
 
 export 'src/fishjam_client.dart' show FishjamClient;

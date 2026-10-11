@@ -1,9 +1,3 @@
-/// Public track models (SPEC §11, §14, §15). Owner: Architect.
-///
-/// Track contexts are immutable snapshots. Local and remote tracks are
-/// separate types because they share almost no behavior.
-library;
-
 import 'package:fishjam_client/src/models/simulcast.dart';
 import 'package:fishjam_client/src/rtc/flutter_webrtc_adapter.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
@@ -13,16 +7,12 @@ import 'package:meta/meta.dart';
 
 /// What a track carries, as announced in its metadata.
 enum TrackType {
-  /// Camera video.
   camera('camera'),
 
-  /// Microphone audio.
   microphone('microphone'),
 
-  /// Screen share video.
   screenShareVideo('screenShareVideo'),
 
-  /// Screen share audio.
   screenShareAudio('screenShareAudio'),
 
   /// Any other video.
@@ -48,14 +38,12 @@ enum TrackType {
 /// Metadata attached to a published track, visible to every peer.
 @immutable
 final class TrackMetadata {
-  /// Creates track metadata.
   const TrackMetadata({
     required this.type,
     this.paused = false,
     this.displayName,
   });
 
-  /// What the track carries.
   final TrackType type;
 
   /// Whether the track is paused (muted) by its owner.
@@ -83,14 +71,12 @@ final class TrackMetadata {
     );
   }
 
-  /// JSON value sent to the server.
   Map<String, Object?> toJson() => {
     'type': type.wireName,
     'paused': paused,
     if (displayName != null) 'displayName': displayName,
   };
 
-  /// Returns a copy with the given fields replaced.
   TrackMetadata copyWith({
     TrackType? type,
     bool? paused,
@@ -117,14 +103,8 @@ final class TrackMetadata {
       'displayName: $displayName)';
 }
 
-/// Voice activity of a remote audio track (SPEC §14.5).
-enum VadStatus {
-  /// Voice detected.
-  speech,
-
-  /// No voice detected.
-  silence,
-}
+/// Voice activity of a remote audio track.
+enum VadStatus { speech, silence }
 
 /// Why the server switched the variant being received. The server does not
 /// report a reason today, so this is always `null` in practice; the type is
@@ -140,7 +120,7 @@ enum EncodingReason {
   lowBandwidth,
 }
 
-/// Snapshot of a track, local or remote.
+/// Immutable snapshot of a track, local or remote.
 @immutable
 sealed class TrackContext {
   const TrackContext({required this.trackId});
@@ -151,7 +131,6 @@ sealed class TrackContext {
 
 /// Snapshot of a track published by this client.
 final class LocalTrackContext extends TrackContext {
-  /// Creates a local track snapshot.
   const LocalTrackContext({
     required super.trackId,
     required this.kind,
@@ -162,7 +141,6 @@ final class LocalTrackContext extends TrackContext {
     required this.maxBandwidth,
   });
 
-  /// Audio or video.
   final MediaKind kind;
 
   /// The media track being sent (internal seam); `null` while muted.
@@ -179,13 +157,11 @@ final class LocalTrackContext extends TrackContext {
   /// The stream the track is associated with, e.g. for a local preview.
   MediaStream? get stream => nativeStreamOf(rtcStream);
 
-  /// The track's metadata.
   final TrackMetadata? metadata;
 
-  /// Simulcast configuration.
   final SimulcastConfig simulcastConfig;
 
-  /// Resolved bandwidth limit (SPEC §13).
+  /// Resolved bandwidth limit.
   final BandwidthLimit maxBandwidth;
 
   /// Whether the track is muted (no media track is sent).
@@ -197,7 +173,6 @@ final class LocalTrackContext extends TrackContext {
 
 /// Snapshot of a track published by another endpoint.
 final class RemoteTrackContext extends TrackContext {
-  /// Creates a remote track snapshot.
   const RemoteTrackContext({
     required super.trackId,
     required this.endpointId,
@@ -253,7 +228,6 @@ final class RemoteTrackContext extends TrackContext {
   /// Whether media has arrived.
   bool get isReady => rtcTrack != null;
 
-  /// Returns a copy with the given fields replaced.
   RemoteTrackContext copyWith({
     MediaKind? kind,
     RtcMediaTrack? rtcTrack,

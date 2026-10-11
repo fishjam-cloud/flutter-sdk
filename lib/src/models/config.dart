@@ -1,13 +1,9 @@
-/// Client configuration and status types (SPEC §3.1, §6). Owner: Architect.
-library;
-
 import 'package:fishjam_client/src/models/errors.dart';
 import 'package:meta/meta.dart';
 
-/// Reconnection settings (SPEC §6).
+/// Reconnection settings; the defaults enable reconnection.
 @immutable
 final class ReconnectConfig {
-  /// Creates reconnection settings; the defaults enable reconnection.
   const ReconnectConfig({
     this.maxAttempts = 3,
     this.initialDelay = const Duration(milliseconds: 500),
@@ -34,7 +30,6 @@ final class ReconnectConfig {
   /// Whether local tracks are published again after reconnecting.
   final bool addTracksOnReconnect;
 
-  /// Whether reconnection is enabled.
   bool get isEnabled => maxAttempts > 0;
 
   /// Delay before attempt [attempt] (1-based):
@@ -55,7 +50,7 @@ final class ReconnectConfig {
       Object.hash(maxAttempts, initialDelay, delay, addTracksOnReconnect);
 }
 
-/// Connection status of the client (SPEC §3.1).
+/// Connection status of the client.
 enum ConnectionStatus {
   /// Never connected.
   idle,
@@ -76,8 +71,8 @@ enum ConnectionStatus {
   disconnected,
 }
 
-/// Why the client is no longer connected (SPEC §3, §4, §6). Every terminal
-/// end of a session maps to exactly one value.
+/// Why the client is no longer connected. Every terminal end of a session
+/// maps to exactly one value.
 enum DisconnectReason {
   /// The app called `leave()`.
   left,
@@ -114,7 +109,6 @@ enum DisconnectReason {
   /// first.
   reconnectionFailed;
 
-  /// The reason for a session-ending close.
   static DisconnectReason fromSessionEnd(SessionEndReason reason) =>
       switch (reason) {
         SessionEndReason.peerRemoved => peerRemoved,
@@ -123,12 +117,11 @@ enum DisconnectReason {
       };
 }
 
-/// Room types reported on authentication (SPEC §20).
+/// Room type reported on authentication.
 enum RoomType {
-  /// Audio and video.
   conference,
 
-  /// Audio only; video tracks are rejected.
+  /// Audio only; adding a video track throws `TrackTypeError`.
   audioOnly,
 
   /// Livestream room (normally used via WHIP/WHEP).

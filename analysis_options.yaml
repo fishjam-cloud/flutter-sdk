@@ -9,14 +9,14 @@ analyzer:
     - lib/src/proto/**
     - build/**
   errors:
-    # Implementation agents fill these in; keep TODOs visible but non-fatal.
+    # Keep TODOs visible but non-fatal.
     todo: ignore
 
 linter:
   rules:
-    # The SDK is a library: public members are documented, but we do not
-    # require docs on every private helper.
-    public_member_api_docs: true
+    # Off: it forces boilerplate docs on internal lib/src members; the
+    # exported API is documented by review instead.
+    public_member_api_docs: false
     avoid_print: true
     # Prefer the familiar `ClassName(...)` constructor declarations over the
     # newer `new(...)` form for readability by contributors on older SDKs.

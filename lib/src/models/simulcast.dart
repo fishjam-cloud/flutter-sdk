@@ -1,6 +1,3 @@
-/// Simulcast and bandwidth value types (SPEC §12, §13). Owner: Architect.
-library;
-
 import 'package:meta/meta.dart';
 
 /// A simulcast layer.
@@ -32,14 +29,12 @@ enum Variant {
 /// Simulcast configuration of a track.
 @immutable
 final class SimulcastConfig {
-  /// Creates a simulcast configuration.
   const SimulcastConfig({
     required this.enabled,
     this.enabledVariants = const [],
     this.disabledVariants = const [],
   });
 
-  /// Simulcast disabled.
   const SimulcastConfig.disabled() : this(enabled: false);
 
   /// Simulcast with every layer enabled.
@@ -55,7 +50,6 @@ final class SimulcastConfig {
   /// Layers not being sent.
   final List<Variant> disabledVariants;
 
-  /// Returns a copy with the given fields replaced.
   SimulcastConfig copyWith({
     bool? enabled,
     List<Variant>? enabledVariants,
@@ -88,8 +82,8 @@ final class SimulcastConfig {
 
 /// Maximum bandwidth of an outgoing track, in kbps (1 kbps = 1024 bps).
 ///
-/// Video limits are clamped to the caps in SPEC §13.1; `0` means "use the
-/// cap". Audio limits are applied as given.
+/// Video limits are clamped to `singleStreamCapKbps` / `simulcastCapsKbps`;
+/// `0` means "use the cap". Audio limits are applied as given.
 @immutable
 sealed class BandwidthLimit {
   const BandwidthLimit();
@@ -108,7 +102,6 @@ sealed class BandwidthLimit {
 
 /// One limit for the whole track, in kbps.
 final class SingleBandwidthLimit extends BandwidthLimit {
-  /// Creates a single limit.
   const SingleBandwidthLimit(this.kbps);
 
   /// The limit in kbps; `0` means "use the cap".
@@ -127,7 +120,6 @@ final class SingleBandwidthLimit extends BandwidthLimit {
 
 /// Per-layer limits, in kbps.
 final class SimulcastBandwidthLimit extends BandwidthLimit {
-  /// Creates per-layer limits.
   const SimulcastBandwidthLimit(this.kbpsPerVariant);
 
   /// Limit per layer; iteration order is low, medium, high once resolved.

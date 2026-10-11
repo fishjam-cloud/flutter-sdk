@@ -1,10 +1,6 @@
-/// Public error types and close-reason classes (SPEC §3, §4, §19, §20).
-/// Owner: Architect. Classification logic lives in `signaling/auth.dart`.
-library;
-
 import 'package:meta/meta.dart';
 
-/// Close reasons that mean the peer token or room is not valid (SPEC §4).
+/// Close reasons that mean the peer token or room is not valid.
 enum AuthErrorReason {
   /// No token was sent.
   missingToken('missing token'),
@@ -27,7 +23,7 @@ enum AuthErrorReason {
   final String wireReason;
 }
 
-/// Close reasons that mean the server refused to let the peer join (SPEC §4).
+/// Close reasons that mean the server refused to let the peer join.
 enum JoinErrorReason {
   /// The room is full.
   reachedPeersLimit('reached peers limit'),
@@ -44,7 +40,7 @@ enum JoinErrorReason {
   final String wireReason;
 }
 
-/// Close reasons that mean the server ended this peer's session (SPEC §4).
+/// Close reasons that mean the server ended this peer's session.
 enum SessionEndReason {
   /// The peer was removed from the room by the app's backend.
   peerRemoved('peer removed'),
@@ -61,7 +57,7 @@ enum SessionEndReason {
   final String wireReason;
 }
 
-/// Classification of a socket close (SPEC §4).
+/// Classification of a socket close; see `classifyClose`.
 @immutable
 sealed class CloseReason {
   const CloseReason({this.code, this.reason});
@@ -72,46 +68,37 @@ sealed class CloseReason {
   /// Raw (not normalized) close reason, if any.
   final String? reason;
 
-  /// Whether the client may reconnect after this close.
   bool get isRetryable => this is RetryableClose;
 }
 
 /// The token or room is not valid.
 final class AuthClose extends CloseReason {
-  /// Creates an auth close.
   const AuthClose(this.authError, {super.code, super.reason});
 
-  /// Which auth error.
   final AuthErrorReason authError;
 }
 
 /// The server refused to let the peer join.
 final class JoinClose extends CloseReason {
-  /// Creates a join close.
   const JoinClose(this.joinError, {super.code, super.reason});
 
-  /// Which join error.
   final JoinErrorReason joinError;
 }
 
 /// The server ended the session on purpose.
 final class SessionEndedClose extends CloseReason {
-  /// Creates a session-ended close.
   const SessionEndedClose(this.sessionEnd, {super.code, super.reason});
 
-  /// Why the session ended.
   final SessionEndReason sessionEnd;
 }
 
 /// The server rejected a message as malformed; indicates an SDK bug.
 final class ProtocolErrorClose extends CloseReason {
-  /// Creates a protocol-error close.
   const ProtocolErrorClose({super.code, super.reason});
 }
 
 /// Any other close, including network loss and liveness timeouts.
 final class RetryableClose extends CloseReason {
-  /// Creates a retryable close.
   const RetryableClose({super.code, super.reason, this.error});
 
   /// The transport error, when the connection ended without a close frame.
@@ -122,7 +109,6 @@ final class RetryableClose extends CloseReason {
 sealed class FishjamException implements Exception {
   const FishjamException(this.message);
 
-  /// Human-readable description.
   final String message;
 
   @override
@@ -131,25 +117,20 @@ sealed class FishjamException implements Exception {
 
 /// `connect()` failed because the token or room is not valid.
 final class AuthException extends FishjamException {
-  /// Creates an auth exception.
   AuthException(this.reason) : super('Authentication failed: ${reason.name}');
 
-  /// Which auth error.
   final AuthErrorReason reason;
 }
 
 /// `connect()` failed because the server refused the join.
 final class JoinException extends FishjamException {
-  /// Creates a join exception.
   JoinException(this.reason) : super('Join failed: ${reason.name}');
 
-  /// Which join error.
   final JoinErrorReason reason;
 }
 
 /// `connect()` failed because the connection ended before joining.
 final class ConnectionException extends FishjamException {
-  /// Creates a connection exception.
   ConnectionException({this.code, this.reason, this.cause})
     : super('Connection closed before joining (code: $code, reason: $reason)');
 
@@ -163,7 +144,7 @@ final class ConnectionException extends FishjamException {
   final Object? cause;
 }
 
-/// A livestream (WHIP/WHEP) request failed (SPEC §19).
+/// Why a livestream (WHIP/WHEP) request failed.
 enum LivestreamError {
   /// HTTP 401.
   unauthorized,
@@ -180,11 +161,9 @@ enum LivestreamError {
 
 /// Thrown by livestream functions.
 final class LivestreamException extends FishjamException {
-  /// Creates a livestream exception.
   LivestreamException(this.error, {this.statusCode, this.cause})
     : super('Livestream failed: ${error.name} (status: $statusCode)');
 
-  /// Which error.
   final LivestreamError error;
 
   /// HTTP status code, if a response was received.
@@ -194,12 +173,10 @@ final class LivestreamException extends FishjamException {
   final Object? cause;
 }
 
-/// Thrown when a video track is added to an audio-only room (SPEC §20).
+/// Thrown when a video track is added to an audio-only room.
 final class TrackTypeError extends Error {
-  /// Creates the error.
   TrackTypeError();
 
-  /// Human-readable description.
   final String message =
       'Attempted to add video track to audio-only room. '
       'Please refer to the docs at https://docs.fishjam.io/audio-calls';

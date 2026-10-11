@@ -1,5 +1,4 @@
-/// Small helpers shared by every module for converting between public
-/// models and protobuf messages (SPEC §2.3). Owner: Architect.
+/// Conversions between public models and protobuf messages.
 library;
 
 import 'dart:convert';
@@ -30,7 +29,6 @@ Object? decodeMetadataJson(
   }
 }
 
-/// Maps a public [Variant] to its protobuf value.
 shared.Variant variantToProto(Variant variant) => switch (variant) {
   Variant.low => shared.Variant.VARIANT_LOW,
   Variant.medium => shared.Variant.VARIANT_MEDIUM,

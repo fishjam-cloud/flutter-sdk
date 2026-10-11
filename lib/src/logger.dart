@@ -1,22 +1,16 @@
-/// The SDK logger (SPEC §21). Owner: Architect.
-library;
-
 import 'dart:developer' as developer;
 
-/// Severity of a log line.
 enum LogLevel {
-  /// Verbose diagnostics.
   debug(500),
 
   /// Something unexpected that the SDK recovered from.
   warn(900),
 
-  /// Something failed.
   error(1000);
 
   LogLevel(this.value);
 
-  /// Numeric level understood by `dart:developer`.
+  /// Level understood by `dart:developer`.
   final int value;
 }
 
@@ -33,14 +27,13 @@ typedef LogSink = void Function(
 /// Logs only when [enabled] is true, prefixes every line with `[FISHJAM]` and
 /// writes through `dart:developer` (never `print`).
 final class FishjamLogger {
-  /// Creates a logger. [sink] defaults to `dart:developer`'s `log`.
+  /// [sink] defaults to `dart:developer`'s `log`.
   FishjamLogger({required this.enabled, LogSink? sink})
     : _sink = sink ?? _developerSink;
 
   /// A logger that never logs.
   FishjamLogger.disabled() : this(enabled: false);
 
-  /// Prefix of every line.
   static const prefix = '[FISHJAM]';
 
   /// Whether lines are emitted (the client's `debug` flag).
@@ -48,14 +41,11 @@ final class FishjamLogger {
 
   final LogSink _sink;
 
-  /// Logs a debug line.
   void debug(String message) => _log(LogLevel.debug, message);
 
-  /// Logs a warning.
   void warn(String message, [Object? error, StackTrace? stackTrace]) =>
       _log(LogLevel.warn, message, error, stackTrace);
 
-  /// Logs an error.
   void error(String message, [Object? error, StackTrace? stackTrace]) =>
       _log(LogLevel.error, message, error, stackTrace);
 
