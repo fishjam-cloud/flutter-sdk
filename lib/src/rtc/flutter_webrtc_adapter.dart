@@ -285,10 +285,7 @@ final class _PeerConnection implements RtcPeerConnection {
     String label,
     DataChannelInit init,
   ) async {
-    final channel = await _pc.createDataChannel(
-      label,
-      _DataChannelInit(init.maxRetransmits)..ordered = init.ordered,
-    );
+    final channel = await _pc.createDataChannel(label, _DataChannelInit(init));
     return _DataChannel(channel, label);
   }
 
@@ -311,18 +308,24 @@ final class _PeerConnection implements RtcPeerConnection {
   }
 }
 
-/// `flutter_webrtc` drops `maxRetransmits: 0` from the map it sends to the
-/// platform; the lossy channel needs it (SPEC §16).
-final class _DataChannelInit extends webrtc.RTCDataChannelInit {
-  _DataChannelInit(this._maxRetransmits);
+/// The options map sent to the platform for [init].
+///
+/// Works around two `flutter_webrtc` defaults: it drops `maxRetransmits: 0`
+/// (the lossy channel needs it, SPEC §16), and it always sends `id: 0`,
+/// which the platform applies to every channel, so the reliable and lossy
+/// channels would collide on SCTP stream 0. Without `id` the stack picks one.
+Map<String, dynamic> nativeDataChannelInit(DataChannelInit init) => {
+  ...(webrtc.RTCDataChannelInit()..ordered = init.ordered).toMap(),
+  if (init.maxRetransmits != null) 'maxRetransmits': init.maxRetransmits,
+}..remove('id');
 
-  final int? _maxRetransmits;
+final class _DataChannelInit extends webrtc.RTCDataChannelInit {
+  _DataChannelInit(this._init);
+
+  final DataChannelInit _init;
 
   @override
-  Map<String, dynamic> toMap() => {
-    ...super.toMap(),
-    if (_maxRetransmits != null) 'maxRetransmits': _maxRetransmits,
-  };
+  Map<String, dynamic> toMap() => nativeDataChannelInit(_init);
 }
 
 final class _Transceiver implements RtcRtpTransceiver {
