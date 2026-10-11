@@ -72,8 +72,9 @@ abstract interface class ReconnectHost {
 ///   session that fails to open — through [onRetryableLoss] or
 ///   [onTerminalClose], and every `connected` through [onSessionJoined].
 /// - The manager emits only `ReconnectionStarted`, `ReconnectionFailed`,
-///   `Reconnected` and, while restoring, `LocalTrackRemoved` for tracks that
-///   are not re-added. It never emits `Disconnected` (D9): when
+///   `Reconnected` and, on the first `connected` of a reconnection,
+///   `LocalTrackRemoved` for every snapshotted track (restored tracks get
+///   new ids). It never emits `Disconnected` (D9): when
 ///   [onRetryableLoss] returns `false` the caller ends the session with
 ///   `Disconnected(reconnectionFailed)` if [state] is
 ///   [ReconnectState.failed], else `Disconnected(connectionLost)`; after a
@@ -81,9 +82,8 @@ abstract interface class ReconnectHost {
 ///   The one exception is [ReconnectHost.startSession] throwing on the last
 ///   attempt, where the manager calls [ReconnectHost.endSession].
 /// - With `addTracksOnReconnect`, only tracks with a live media track are
-///   re-added. Muted tracks (no media track) and ended tracks are not, nor
-///   are tracks whose re-add fails; `LocalTrackRemoved(oldTrackId)` is
-///   emitted for each of them (SPEC §6).
+///   re-added (SPEC §6). Muted tracks (no media track) and ended tracks are
+///   not; a failed re-add does not stop the others.
 class ReconnectManager {
   /// Creates a manager.
   ReconnectManager({required this._config, required this._host});
@@ -97,6 +97,10 @@ class ReconnectManager {
 
   /// Number of attempts started in the current reconnection.
   int _attempt = 0;
+
+  /// Whether `LocalTrackRemoved` was emitted for the snapshot's tracks in
+  /// the current reconnection (once, on the first `connected`).
+  bool _removalsReported = false;
 
   /// Bumped whenever the current attempt is superseded, so a pending track
   /// restoration of an outdated session does not complete the reconnection.
@@ -121,6 +125,7 @@ class ReconnectManager {
         _state = ReconnectState.reconnecting;
         _snapshot = snapshot;
         _attempt = 0;
+        _removalsReported = false;
         _host
           ..holdQueue()
           ..emit(const ReconnectionStarted());
@@ -151,28 +156,31 @@ class ReconnectManager {
   }
 
   /// A session reached `connected`. In [ReconnectState.reconnecting]:
+  /// reports every snapshotted track removed (once per reconnection),
   /// restores tracks, releases the queue and emits `Reconnected`.
   ///
   /// Only live tracks are restored; ended or muted ones are skipped and a
-  /// failed restore does not stop the others (D2). Every track that is not
-  /// restored is reported with `LocalTrackRemoved`. If the session is lost
+  /// failed restore does not stop the others (D2). If the session is lost
   /// while restoring, `Reconnected` is not emitted for it.
   Future<void> onSessionJoined() async {
     if (_state != ReconnectState.reconnecting) return;
     final generation = _generation;
+    final tracks = _snapshot!.tracks;
+    if (!_removalsReported) {
+      _removalsReported = true;
+      for (final track in tracks) {
+        _host.emit(LocalTrackRemoved(track.trackId));
+      }
+    }
     if (_config.addTracksOnReconnect) {
-      for (final track in _snapshot!.tracks) {
-        var restored = false;
-        if (track.rtcTrack?.isLive ?? false) {
-          try {
-            await _host.restoreTrack(track);
-            restored = true;
-          } on Object {
-            // The host reports the failure; the other tracks still go.
-          }
-          if (generation != _generation) return;
+      for (final track in tracks) {
+        if (!(track.rtcTrack?.isLive ?? false)) continue;
+        try {
+          await _host.restoreTrack(track);
+        } on Object {
+          // The host reports the failure; the other tracks still go.
         }
-        if (!restored) _host.emit(LocalTrackRemoved(track.trackId));
+        if (generation != _generation) return;
       }
     }
     _finish(ReconnectState.idle, release: true);

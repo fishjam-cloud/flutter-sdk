@@ -167,15 +167,18 @@ States: `idle`, `reconnecting`, `failed`.
 | reconnecting | retryable loss in the new session before `connected` (including a new session that cannot be started at all) | schedule next attempt if attempts remain | reconnecting |
 | reconnecting | retryable loss, no attempts left | clear queue; emit `ReconnectionFailed`, then `Disconnected(DisconnectReason.reconnectionFailed)` | failed |
 | reconnecting | terminal close (auth/join/session ended/protocol) | cancel timer; clear queue; emit the matching error event and `Disconnected` | failed |
-| reconnecting | `connected` | emit `Joined`; if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks); emit `LocalTrackRemoved(oldTrackId)` for every snapshotted track that is not re-added (ended, muted, or its re-add failed); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
+| reconnecting | `connected` | emit `Joined`; emit `LocalTrackRemoved(oldTrackId)` for every snapshotted track (once per reconnection, also without `addTracksOnReconnect`); if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
 | any | `leave()` | cancel timer; clear queue | idle |
 
 - Delay of attempt `n` (1-based) is `initialDelay + (n - 1) * delay`.
 - Only one attempt timer exists at a time; triggers while a timer is pending are ignored.
 - Failures before the first `Joined` of a `connect()` call never start reconnection ([§3.2](#32-connect)).
-- A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it.
-- A **muted** track (no media track) is not re-added: there is nothing to publish. The app is told with
-  `LocalTrackRemoved` and adds the track again when it unmutes.
+- Every local track id of the lost session ends with `LocalTrackRemoved`: the tracks went away with the
+  session. A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it after the removals.
+  If an attempt that already re-added tracks is lost before `Reconnected`, those new ids are reported
+  removed when the next attempt starts.
+- A **muted** track (no media track) is not re-added: there is nothing to publish. The app adds the track
+  again when it unmutes.
 
 ## 7. Media event processing
 

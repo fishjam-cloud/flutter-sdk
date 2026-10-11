@@ -1,6 +1,6 @@
 {
   "name": "reconnect_with_track_restore",
-  "description": "With addTracksOnReconnect, a retryable close while joined starts reconnection: after initialDelay a new socket authenticates, connects with the peer part of the last known metadata, emits Joined, re-publishes the live track under a new id and only then emits Reconnected. No Disconnected is emitted (SPEC \u00a76, D2, D9).",
+  "description": "With addTracksOnReconnect, a retryable close while joined starts reconnection: after initialDelay a new socket authenticates, connects with the peer part of the last known metadata, emits Joined, reports the old track id removed, re-publishes the live track under a new id and only then emits Reconnected. No Disconnected is emitted (SPEC \u00a76, D2, D9).",
   "config": {
     "reconnect": {
       "maxAttempts": 3,
@@ -270,6 +270,13 @@
       "fields": {
         "peerId": "local-peer",
         "peers": []
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "LocalTrackRemoved",
+      "fields": {
+        "trackId": "${cam}"
       }
     },
     {
