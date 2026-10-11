@@ -33,9 +33,9 @@ Run analyze, format and tests before every commit.
   lifecycle). Elsewhere, comment only the why: protocol and platform quirks, invariants, ordering and
   concurrency rules. No comments that restate a name or signature (`public_member_api_docs` is off for
   this reason).
-- **`flutter_webrtc` only at the boundary.** Only the adapter (`lib/src/rtc/flutter_webrtc_adapter.dart`), the
-  public models (`lib/src/models/`) and the facade (`lib/fishjam_client.dart`, `lib/src/fishjam_client.dart`,
-  `lib/src/livestream_api.dart`) may import it. The internal modules (`signaling`, `engine`, `tracks`, `data`,
+- **`flutter_webrtc` only at the boundary.** Only the adapter (`lib/src/rtc/flutter_webrtc_adapter.dart`, whose
+  parts are `flutter_webrtc_adapter_*.dart`), the public models (`lib/src/models/`) and the facade
+  (`lib/fishjam_client.dart`, `lib/src/fishjam_client.dart`, `lib/src/livestream_api.dart`) may import it. The internal modules (`signaling`, `engine`, `tracks`, `data`,
   `stats`, `livestream`) stay pure Dart on the `RtcAdapter` / `RtcMediaTrack` seam and are tested with
   `test/fakes/`; they must not import the adapter either. Convert with `wrapNativeTrack` / `nativeTrackOf` at
   the boundary (SPEC §20a). `test/import_boundary_test.dart` enforces this.

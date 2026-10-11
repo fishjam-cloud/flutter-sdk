@@ -8,7 +8,8 @@
 #
 # Excluded from the gate:
 #   lib/src/proto/**                      generated protobuf bindings
-#   lib/src/rtc/flutter_webrtc_adapter.dart  platform glue, covered by device tests
+#   lib/src/rtc/flutter_webrtc_adapter*.dart  platform glue (a library and its
+#                                         parts), covered by device tests
 # Never recorded (no executable code):
 #   lib/fishjam_client.dart               exports only
 #   lib/src/version.dart                  constants only
@@ -25,7 +26,7 @@ fi
 unrecorded=0
 while IFS= read -r file; do
   case "$file" in
-    lib/src/proto/* | lib/src/rtc/flutter_webrtc_adapter.dart | \
+    lib/src/proto/* | lib/src/rtc/flutter_webrtc_adapter*.dart | \
       lib/fishjam_client.dart | lib/src/version.dart) continue ;;
   esac
   if ! grep -qx "SF:$file" "$LCOV"; then
@@ -38,7 +39,7 @@ if [[ $unrecorded -ne 0 ]]; then exit 1; fi
 awk -v min="$MIN" '
   /^SF:/ {
     file = substr($0, 4)
-    skip = (file ~ /lib\/src\/proto\// || file ~ /lib\/src\/rtc\/flutter_webrtc_adapter\.dart$/)
+    skip = (file ~ /lib\/src\/proto\// || file ~ /lib\/src\/rtc\/flutter_webrtc_adapter[a-z_]*\.dart$/)
     next
   }
   /^DA:/ && !skip {
