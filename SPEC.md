@@ -490,14 +490,19 @@ snapshots.
 - Incoming messages are decoded as `ChannelMessage`; when `binary` is set, `binary.data` is delivered to
   `dataStream(reliable: <channel == reliable>)` subscribers. Text messages are converted to UTF-8 bytes first.
   Undecodable messages are logged and dropped.
-- `dataStream(...)` may be subscribed before the channels exist. Channels are closed on teardown.
+- `dataStream(...)` may be subscribed before the channels exist; subscriptions survive reconnection. Channels
+  are closed on teardown, which fails a pending `createDataChannels()` with `StateError('disconnected')`
+  without emitting `DataChannelsError` (also when the engine fails the command with
+  `StateError('disconnected')`). After a failure, `createDataChannels()` may be called again. Disposing the
+  client ends every `dataStream`.
 
 ## 17. Statistics reporting
 
 - Every 10 s while `joined`, the client calls `getStats()` on the peer connection and sends
   `rtcStatsReport{data}` (queued, [§5](#5-outgoing-message-queue)).
-- `data` is a JSON object mapping each report id to the report's fields (including `id`, `type`, `kind`),
-  containing only reports of type `inbound-rtp` or `outbound-rtp`.
+- `data` is a JSON object mapping each report id to the report's fields (including `id`, `type`, `kind`,
+  `timestamp`), containing only reports of type `inbound-rtp` or `outbound-rtp`. Values JSON cannot represent
+  (`NaN`, infinities) are sent as `null`. A report whose `getStats()` is still running at teardown is dropped.
 - The timer starts on `Joined` (every session) and stops on teardown. A failing `getStats()` skips the tick.
 
 ## 18. Local audio level
@@ -515,13 +520,18 @@ Plain HTTP, no Fishjam socket.
   and the first audio track. Create offer, set local description, wait for ICE gathering to complete, then
   `POST url` with `Content-Type: application/sdp`, `Authorization: Bearer <token>`, body = offer SDP. Expect
   `201` with the answer SDP and a `Location` header (resolved against `url`). Set remote description.
+  ICE gathering waits at most `iceGatheringTimeout` (default 3 s); on timeout the offer is sent with the
+  candidates gathered so far.
 - **Receive (WHEP)** `receiveLivestream(url, {token})`: `recvonly` video and audio transceivers, same exchange
-  (bearer header only when a token is given). Completes when the first remote stream arrives.
+  (bearer header only when a token is given). Completes when the first remote stream arrives; if the
+  connection fails or closes first, or no stream arrives within `firstStreamTimeout` (default 10 s) after the
+  answer, it stops (as below) and fails with `unknownError`.
 - **Stop**: `DELETE <Location>` with the same bearer header, then close the peer connection. A failed DELETE
-  is logged; the peer connection is closed regardless.
+  is logged; the peer connection is closed regardless. Without a `Location` header nothing is deleted. Stop is
+  idempotent. A failure after a successful POST (e.g. the answer cannot be applied) stops the same way.
 - Status mapping for the POST: `401` → `LivestreamError.unauthorized`, `404` → `streamNotFound`,
-  `409` (publish only) → `streamerAlreadyConnected`, anything else non-2xx or a network error →
-  `unknownError`.
+  `409` (publish only) → `streamerAlreadyConnected`, anything else non-2xx, a network error or a WebRTC
+  failure → `unknownError` (with the original error as `cause`).
 
 ## 20. Audio-only rooms
 
