@@ -25,10 +25,14 @@ Run analyze, format and tests before every commit.
 - **Red-green TDD is mandatory.** Write the test first, run it and observe it fail, then implement, then see
   it pass. Do not skip the observed failure.
 - **Spec first.** Behavior changes start in `SPEC.md` (and the affected fixtures), then tests, then code.
-  Reference sections in code comments as `SPEC §N`.
-- **Stay in your module.** Each directory under `lib/src/` has an owner and a boundary (see the table below
-  and the directory's `README.md`). Shared seams (`rtc/rtc_adapter.dart`, `signaling/transport.dart`,
-  `models/`, `wire.dart`, `logger.dart`) change only with agreement of every module that uses them.
+  Cite a section (`SPEC §N`) in a comment only where it explains a rule the reader would otherwise question.
+- **Respect module boundaries** (see [Modules](#modules)). Shared seams (`rtc/rtc_adapter.dart`,
+  `signaling/transport.dart`, `models/`, `wire.dart`, `logger.dart`) change only together with every
+  module that uses them.
+- **Comments say what the code cannot.** Document the exported API concisely (behavior, units, errors,
+  lifecycle). Elsewhere, comment only the why: protocol and platform quirks, invariants, ordering and
+  concurrency rules. No comments that restate a name or signature (`public_member_api_docs` is off for
+  this reason).
 - **`flutter_webrtc` only at the boundary.** Only the adapter (`lib/src/rtc/flutter_webrtc_adapter.dart`), the
   public models (`lib/src/models/`) and the facade (`lib/fishjam_client.dart`, `lib/src/fishjam_client.dart`,
   `lib/src/livestream_api.dart`) may import it. The internal modules (`signaling`, `engine`, `tracks`, `data`,
@@ -49,22 +53,20 @@ Run analyze, format and tests before every commit.
   service names or server implementation details in code, comments, tests, commit messages or PRs. Describe
   server behavior only as observable protocol behavior.
 
-## Module ownership
+## Modules
 
-| Directory | Owner | Boundary |
-|---|---|---|
-| `lib/src/rtc/` | Architect | `RtcAdapter` seam and the `flutter_webrtc` implementation |
-| `lib/src/signaling/` | Signaling (transport: Architect) | socket, auth, close reasons, message queue, reconnection |
-| `lib/src/engine/` | Engine | media event dispatch, negotiation state machine, command queue, peer connection, ICE |
-| `lib/src/tracks/` | Tracks | local/remote track state, simulcast encodings, bandwidth, variants, VAD |
-| `lib/src/data/` | Data & Stats | reliable/lossy data channels and `ChannelMessage` framing |
-| `lib/src/stats/` | Data & Stats | periodic stats report |
-| `lib/src/livestream/` | Data & Stats | WHIP/WHEP |
-| `lib/src/models/`, `wire.dart`, `logger.dart`, `version.dart` | Architect | public types and shared helpers |
-| `lib/src/fishjam_client.dart`, `lib/src/livestream_api.dart`, `lib/fishjam_client.dart` | Integrator | the public facade; wiring and type conversion only |
-| `test/fakes/`, `test/support/`, `test/fixtures/` | Architect | fakes, fixture replayer, golden sequences |
-
-Skeleton methods throw `UnimplementedError('<owner>')` until their owner implements them.
+| Directory | Responsibility |
+|---|---|
+| `lib/src/rtc/` | `RtcAdapter` seam and its `flutter_webrtc` implementation; no SDK logic |
+| `lib/src/signaling/` | socket, auth, close reasons, message queue, reconnection; knows nothing about WebRTC |
+| `lib/src/engine/` | per-session media event dispatch, negotiation state machine, command queue, peer connection, ICE |
+| `lib/src/tracks/` | local/remote track state, simulcast encodings, bandwidth, variants, VAD, local audio level; never drives negotiation |
+| `lib/src/data/` | reliable/lossy data channels and `ChannelMessage` framing |
+| `lib/src/stats/` | periodic stats report |
+| `lib/src/livestream/` | WHIP/WHEP over plain HTTP, independent of the room connection |
+| `lib/src/models/`, `wire.dart`, `logger.dart`, `version.dart` | public immutable types and shared helpers |
+| `lib/src/fishjam_client.dart`, `lib/src/livestream_api.dart`, `lib/fishjam_client.dart` | the public facade; wiring and type conversion only |
+| `test/fakes/`, `test/support/`, `test/fixtures/` | fakes, fixture replayer, golden sequences |
 
 ## Testing tools
 
