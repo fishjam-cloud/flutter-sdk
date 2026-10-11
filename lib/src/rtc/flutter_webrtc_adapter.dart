@@ -255,7 +255,7 @@ final class _PeerConnection implements RtcPeerConnection {
 
   @override
   Future<SessionDescription> createOffer() async =>
-      _fromNativeDescription(await _pc.createOffer());
+      _fromNativeDescription(await _pc.createOffer(nativeOfferConstraints));
 
   @override
   Future<void> setLocalDescription(SessionDescription description) =>
@@ -307,6 +307,14 @@ final class _PeerConnection implements RtcPeerConnection {
     ]);
   }
 }
+
+/// Constraints for `createOffer`. Without them `flutter_webrtc` sends
+/// `OfferToReceiveAudio/Video: true`, and the platform adds receive
+/// transceivers the server did not ask for (SPEC §9).
+const nativeOfferConstraints = <String, dynamic>{
+  'mandatory': <String, dynamic>{},
+  'optional': <dynamic>[],
+};
 
 /// The options map sent to the platform for [init].
 ///
