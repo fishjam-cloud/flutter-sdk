@@ -1,6 +1,7 @@
 /// Public endpoint models: peers and components (SPEC §14.1). Owner: Architect.
 library;
 
+import 'package:collection/collection.dart';
 import 'package:fishjam_client/src/models/track.dart';
 import 'package:meta/meta.dart';
 
@@ -29,10 +30,14 @@ final class Metadata {
 
   @override
   bool operator ==(Object other) =>
-      other is Metadata && other.peer == peer && other.server == server;
+      other is Metadata &&
+      _equality.equals(other.peer, peer) &&
+      _equality.equals(other.server, server);
 
   @override
-  int get hashCode => Object.hash(peer, server);
+  int get hashCode => Object.hash(_equality.hash(peer), _equality.hash(server));
+
+  static const _equality = DeepCollectionEquality();
 
   @override
   String toString() => 'Metadata(peer: $peer, server: $server)';
