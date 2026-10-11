@@ -281,7 +281,9 @@ Built **after** `setLocalDescription` (so new transceivers have mids):
 - `midToTrackId`: union of
   1. every transceiver with a non-null `mid` whose sender has a track → the local track owning that media
      track (matched by media track id), and
-  2. every local track that already has a mid from a previous answer (keeps muted tracks, whose sender has no
+  2. every transceiver with a non-null `mid` whose sender is the sender of a local track (a track muted before
+     its first answer has no media track on its sender), and
+  3. every local track that already has a mid from a previous answer (keeps muted tracks, whose sender has no
      media track, mapped).
   A transceiver whose sender track belongs to no local track is skipped and logged (never throws).
 
@@ -328,15 +330,17 @@ Completes after the answer; emits `LocalTrackRemoved(trackId)`. Unknown id → `
 | `null` | present | **unmute**: send `unmuteTrack{trackId}`, emit `LocalTrackUnmuted(trackId)` |
 | otherwise | | **replace** |
 
-Then `sender.replaceTrack(newTrack)`. On failure the previous track is restored and the opposite mute/unmute
-event is emitted. On success emit `LocalTrackReplaced(trackId, track)`. Unknown id → `ArgumentError`.
+Then `sender.replaceTrack(newTrack)`. On failure the previous track is restored, the opposite mute/unmute
+event is emitted and the call fails with the sender's error. On success emit `LocalTrackReplaced(trackId, track)`.
+Unknown id → `ArgumentError`. Before the track has a sender, only the stored track changes (events as above).
 
 ### 11.4 Encodings (sender variants)
 
 `enableTrackEncoding` / `disableTrackEncoding(trackId, variant)`: find the sender encoding whose rid maps to
 the variant (`l`, `m`, `h`), set `active`, `setParameters`, then send `enableTrackVariant` /
 `disableTrackVariant{trackId, variant}` and emit `LocalTrackEncodingEnabled` / `LocalTrackEncodingDisabled`
-(the correct one for each operation). Missing encoding → `ArgumentError`.
+(the correct one for each operation). The track's `simulcastConfig` enabled/disabled variants follow. Missing
+encoding → `ArgumentError`.
 
 ### 11.5 Bandwidth
 
@@ -434,7 +438,8 @@ as is; a map → `ArgumentError`. `setEncodingBandwidth` on audio applies the nu
 
 - `tracksAdded{endpointId, trackIdToTrack}` → for each new track: create a `RemoteTrack` (metadata,
   simulcast config, no media yet), emit `TrackAdded`. A track id that is already known is updated in place
-  (metadata, simulcast config) without a second `TrackAdded`.
+  (metadata, simulcast config) without a second `TrackAdded`. A track id owned by another endpoint is logged and
+  ignored.
 - `tracksRemoved{endpointId, trackIds}` → remove, emit `TrackRemoved` for each known id.
 - `trackUpdated{endpointId, trackId, metadataJson}` → store, emit `TrackUpdated`.
 - Remote track metadata is decoded into `TrackMetadata` when it has the shape
@@ -449,8 +454,8 @@ transceiver mid. Unknown mid → logged and ignored. Otherwise attach the media 
 
 ### 14.4 Variants (receiving simulcast)
 
-- `setTargetTrackEncoding(trackId, variant)`: validate **before** storing — the track must be simulcast and
-  the variant must be in its enabled variants, otherwise `ArgumentError` and nothing is sent. Then send
+- `setTargetTrackEncoding(trackId, variant)`: validate **before** storing — the track must be known and
+  simulcast and the variant must be in its enabled variants, otherwise `ArgumentError` and nothing is sent. Then send
   `setTargetTrackVariant{trackId, variant}` and emit `TargetTrackEncodingRequested(trackId, variant)`.
 - `trackVariantSwitched{trackId, variant}` → set `encoding`, emit `TrackEncodingChanged`. `encodingReason`
   stays `null` (the server does not provide one).
@@ -562,6 +567,7 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D17 | metadata `undefined` may be sent as an empty string | always valid JSON (§2.3) | the server drops empty JSON |
 | D18 | `tracksPriorityChanged`, `bandwidthEstimationChanged`, `getBandwidthEstimation` exist but are never fed | dropped | dead API |
 | D19 | ICE `disconnected` sends `renegotiateTracks` even mid-cycle | deferred until the cycle ends (§8.2) | keeps client and server in step |
+| D20 | a failed `replaceTrack` is swallowed; the call succeeds | rolled back, then the call fails with the error (§11.3) | the app learns the media was not replaced |
 
 ## 23. Golden fixtures
 
