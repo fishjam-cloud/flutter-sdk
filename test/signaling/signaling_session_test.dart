@@ -292,6 +292,40 @@ void main() {
       );
     });
 
+    test('closed completes only after every received event was delivered '
+        '(error then close)', () async {
+      // A consumer that handles each event asynchronously, one at a time
+      // (like the engine): the subscription is paused while it works.
+      final events = <server.MediaEvent>[];
+      var streamDone = false;
+      unawaited(() async {
+        await for (final event in session.serverMediaEvents) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          events.add(event);
+        }
+        streamDone = true;
+      }());
+      final seenAtClose = Completer<(List<server.MediaEvent>, bool)>();
+      unawaited(
+        session.closed.then(
+          (_) => seenAtClose.complete((List.of(events), streamDone)),
+        ),
+      );
+
+      transport
+        ..receive(
+          _serverEvent(
+            server.MediaEvent(error: server.MediaEvent_Error(message: 'fatal')),
+          ),
+        )
+        ..receive(_serverEvent(_connected('after')))
+        ..serverClose(reason: 'Internal server error');
+
+      final (seen, done) = await seenAtClose.future;
+      expect(seen.map((e) => e.whichContent().name), ['error', 'connected']);
+      expect(done, isTrue);
+    });
+
     test('closed reports a lost connection as retryable', () async {
       transport.loseConnection();
       expect(await session.closed, isA<RetryableClose>());

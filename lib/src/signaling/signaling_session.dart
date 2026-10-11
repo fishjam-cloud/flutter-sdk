@@ -117,6 +117,13 @@ class SignalingSession {
   /// Completes once with the classified reason when the socket closes for
   /// any reason other than [close], including before authentication and when
   /// the socket cannot be opened.
+  ///
+  /// When [serverMediaEvents] has a listener, [closed] completes only after
+  /// every event received before the close was delivered and the stream's
+  /// done event was handled. A consumer that handles events asynchronously
+  /// must therefore finish (or keep its subscription paused) until it is done
+  /// with an event before reacting to [closed] — e.g. a server `error`
+  /// followed by a close must be handled as an error, not as a lost socket.
   Future<CloseReason> get closed => _closed.future;
 
   /// Sends a peer media event: immediately when it bypasses the queue,
@@ -200,7 +207,15 @@ class SignalingSession {
     if (!_authenticated.isCompleted) {
       _authenticated.completeError(SignalingClosedException(reason));
     }
-    unawaited(_events.close());
-    if (!_closing) _closed.complete(reason);
+    // With a listener, `close()` completes once the done event was
+    // delivered, i.e. after every buffered event was handed over.
+    final delivered = _events.hasListener ? _events.close() : null;
+    if (delivered == null) unawaited(_events.close());
+    if (_closing) return;
+    if (delivered == null) {
+      _closed.complete(reason);
+    } else {
+      unawaited(delivered.then((_) => _closed.complete(reason)));
+    }
   }
 }
