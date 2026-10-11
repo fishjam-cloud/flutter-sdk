@@ -7,6 +7,7 @@ analyzer:
     strict-raw-types: true
   exclude:
     - lib/src/proto/**
+    - build/**
   errors:
     # Implementation agents fill these in; keep TODOs visible but non-fatal.
     todo: ignore
@@ -17,3 +18,6 @@ linter:
     # require docs on every private helper.
     public_member_api_docs: true
     avoid_print: true
+    # Prefer the familiar `ClassName(...)` constructor declarations over the
+    # newer `new(...)` form for readability by contributors on older SDKs.
+    unnecessary_type_name_in_constructor: false
