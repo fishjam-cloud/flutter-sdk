@@ -13,10 +13,18 @@ import 'package:fishjam_client/src/signaling/transport.dart';
 const peerSocketPath = 'socket/peer/websocket';
 
 /// Builds the socket URL from the Fishjam [url] (SPEC §2.1): appends
-/// [peerSocketPath] without duplicating a trailing `/`.
-Uri peerSocketUrl(String url) => Uri.parse(
-  url.endsWith('/') ? '$url$peerSocketPath' : '$url/$peerSocketPath',
-);
+/// [peerSocketPath] without duplicating a trailing `/`; an `http` / `https`
+/// URL becomes `ws` / `wss`.
+Uri peerSocketUrl(String url) {
+  final socket = Uri.parse(
+    url.endsWith('/') ? '$url$peerSocketPath' : '$url/$peerSocketPath',
+  );
+  return switch (socket.scheme) {
+    'http' => socket.replace(scheme: 'ws'),
+    'https' => socket.replace(scheme: 'wss'),
+    _ => socket,
+  };
+}
 
 /// `reason.trim().toLowerCase()` (SPEC §4).
 String normalizeCloseReason(String reason) => reason.trim().toLowerCase();

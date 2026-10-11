@@ -29,7 +29,8 @@ Conventions:
 
 ### 2.1 Transport
 
-- URL: `<url>/socket/peer/websocket`. A single trailing `/` on `<url>` is not duplicated.
+- URL: `<url>/socket/peer/websocket`. A single trailing `/` on `<url>` is not duplicated. An `http` /
+  `https` URL is connected as `ws` / `wss`.
 - Every frame in both directions is **binary** and contains exactly one `fishjam.PeerMessage`.
 - Text frames from the server are ignored (logged at debug level).
 - The server pings every 30 s. The client additionally sends its own pings (interval 15 s) and treats a

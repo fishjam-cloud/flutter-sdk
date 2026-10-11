@@ -30,6 +30,17 @@ void main() {
         Uri.parse('wss://fishjam.test/app/socket/peer/websocket'),
       );
     });
+
+    test('turns http and https URLs into ws and wss', () {
+      expect(
+        peerSocketUrl('https://fishjam.test/app'),
+        Uri.parse('wss://fishjam.test/app/socket/peer/websocket'),
+      );
+      expect(
+        peerSocketUrl('http://localhost:8080/'),
+        Uri.parse('ws://localhost:8080/socket/peer/websocket'),
+      );
+    });
   });
 
   test('normalizeCloseReason trims and lowercases (SPEC §4)', () {
