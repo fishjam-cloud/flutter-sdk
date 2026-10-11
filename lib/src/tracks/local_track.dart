@@ -146,6 +146,9 @@ class LocalTrackRegistry {
   /// Local peer metadata (`peer` part).
   Object? peerMetadata;
 
+  /// Local peer metadata (`server` part), as reported in `connected`.
+  Object? serverMetadata;
+
   /// Registered tracks in registration order.
   List<LocalTrack> get tracks => throw UnimplementedError('Tracks');
 
@@ -185,4 +188,10 @@ class LocalTrackRegistry {
 
   /// Snapshot of the local peer.
   LocalPeer toLocalPeer() => throw UnimplementedError('Tracks');
+
+  /// SPEC §11.3: mute / unmute / replace [trackId]'s media, with its media
+  /// events and client events; on failure emits the opposite event and
+  /// rethrows. Unknown id → [ArgumentError].
+  Future<void> replaceTrack(String trackId, RtcMediaTrack? newTrack) =>
+      throw UnimplementedError('Tracks');
 }
