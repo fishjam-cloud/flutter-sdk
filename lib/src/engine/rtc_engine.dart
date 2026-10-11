@@ -125,6 +125,10 @@ class RtcEngine {
   final _subscriptions = <StreamSubscription<Object?>>[];
   bool _hasRemoteDescription = false;
   final _pendingCandidates = <IceCandidate>[];
+
+  /// Local candidates gathered while an offer is being prepared; they are
+  /// sent right after it (SPEC §8.4). `null` when not holding.
+  List<IceCandidate>? _heldLocalCandidates;
   final _groupStreams = <String, RtcMediaStream>{};
   final _ownedStreams = <RtcMediaStream>{};
   bool _failed = false;
@@ -522,6 +526,9 @@ class RtcEngine {
       await _syncReceiveTransceivers(pc, offerData.tracksTypes);
       await _commands.drainBatch();
       final offer = await pc.createOffer().timeout(nativeCallTimeout);
+      // Native stacks emit candidates during setLocalDescription, before
+      // the offer is sent; the server rejects a candidate that precedes it.
+      _heldLocalCandidates = [];
       await pc.setLocalDescription(offer).timeout(nativeCallTimeout);
       // Transceivers are snapshots: re-read them to see the new mids.
       final mids = await localTracks.midToTrackId(await pc.getTransceivers());
@@ -538,8 +545,10 @@ class RtcEngine {
         }
       }
       _send(peer.MediaEvent(sdpOffer: sdpOffer));
+      _releaseLocalCandidates();
       _perform(_negotiation.handle(NegotiationInput.offerSent));
     } on Object catch (e, st) {
+      _heldLocalCandidates = null;
       _abortCycle('Failed to create the offer', e, st);
     }
   }
@@ -677,7 +686,22 @@ class RtcEngine {
     return pc;
   }
 
-  void _onLocalCandidate(IceCandidate c) => _send(
+  void _onLocalCandidate(IceCandidate c) {
+    final held = _heldLocalCandidates;
+    if (held != null) {
+      held.add(c);
+    } else {
+      _sendLocalCandidate(c);
+    }
+  }
+
+  void _releaseLocalCandidates() {
+    final held = _heldLocalCandidates ?? const <IceCandidate>[];
+    _heldLocalCandidates = null;
+    held.forEach(_sendLocalCandidate);
+  }
+
+  void _sendLocalCandidate(IceCandidate c) => _send(
     peer.MediaEvent(
       candidate: shared.Candidate(
         candidate: c.candidate,

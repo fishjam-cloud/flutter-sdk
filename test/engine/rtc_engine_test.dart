@@ -534,6 +534,25 @@ void main() {
   });
 
   group('ICE candidates (SPEC §8.4)', () {
+    test('candidates gathered before the offer is sent follow it', () async {
+      // The server rejects a candidate that arrives before the offer it
+      // belongs to; native stacks emit candidates during setLocalDescription.
+      final (h, _) = await _joined();
+      await h.engine.ensurePeerConnection();
+      h.pc.onLocalDescriptionSet = () => h.pc.emitIceCandidate(
+        const IceCandidate(candidate: 'early', sdpMLineIndex: 0, sdpMid: '0'),
+      );
+      await h.offerData();
+      await settle();
+
+      final kinds = h.sent.map((e) => e.whichContent()).toList();
+      expect(
+        kinds.indexOf(_C.candidate),
+        greaterThan(kinds.indexOf(_C.sdpOffer)),
+      );
+      expect(h.sentOf(_C.candidate).single.candidate.candidate, 'early');
+    });
+
     test('local candidates are sent; remote ones are added', () async {
       final (h, _) = await _joined();
       await h.offerData();

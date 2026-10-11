@@ -527,7 +527,13 @@ class FakePeerConnection implements RtcPeerConnection {
     }
     localDescription = description;
     _setSignalingState(SignalingState.haveLocalOffer);
+    // Native stacks start gathering (and emitting candidates) right away.
+    onLocalDescriptionSet?.call();
   }
+
+  /// Called after each `setLocalDescription`, e.g. to emit candidates the way
+  /// a native stack does before the caller has sent its offer.
+  void Function()? onLocalDescriptionSet;
 
   @override
   Future<void> setRemoteDescription(SessionDescription description) async {
