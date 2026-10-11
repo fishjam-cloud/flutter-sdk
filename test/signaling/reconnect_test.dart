@@ -312,9 +312,9 @@ void main() {
         );
         final firstRestore = host.calls.indexOf('restoreTrack:cam');
         expect(
-          host.calls.sublist(0, firstRestore).where(
-            (c) => c == 'emit:LocalTrackRemoved',
-          ),
+          host.calls
+              .sublist(0, firstRestore)
+              .where((c) => c == 'emit:LocalTrackRemoved'),
           hasLength(5),
         );
         expect(host.calls.sublist(host.calls.length - 2), [

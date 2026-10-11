@@ -54,9 +54,8 @@ class FishjamClient {
     this.debug = false,
     this.reconnect = const ReconnectConfig(),
     @visibleForTesting RtcAdapter? rtcAdapter,
-    @visibleForTesting SignalingTransportFactory? transportFactory,
+    @visibleForTesting this._transportFactory,
   }) : _adapter = rtcAdapter ?? const FlutterWebrtcAdapter(),
-       _transportFactory = transportFactory ?? WebSocketTransport.new,
        _logger = FishjamLogger(enabled: debug) {
     _reconnect = ReconnectManager(config: reconnect, host: _Host(this));
     _dataChannels = DataChannelManager(
@@ -80,7 +79,7 @@ class FishjamClient {
   final ReconnectConfig reconnect;
 
   final RtcAdapter _adapter;
-  final SignalingTransportFactory _transportFactory;
+  final SignalingTransportFactory? _transportFactory;
   final FishjamLogger _logger;
   final _events = StreamController<FishjamEvent>.broadcast();
   late final MessageQueue _queue = MessageQueue(
@@ -275,7 +274,8 @@ class FishjamClient {
   /// Creates a session and makes it the current one.
   _Session _newSession() {
     final signaling = SignalingSession(
-      transport: _transportFactory(),
+      transport:
+          _transportFactory?.call() ?? WebSocketTransport(logger: _logger),
       queue: _queue,
       logger: _logger,
       sdkVersion: sdkVersion,
