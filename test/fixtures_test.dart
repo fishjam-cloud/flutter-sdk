@@ -62,6 +62,7 @@ const _required = {
   'join_failure_close',
   'reconnect_with_track_restore',
   'data_channels',
+  'session_ended_close',
 };
 
 final _placeholder = RegExp(r'\$\{(\w+)\}');

@@ -278,7 +278,7 @@
       "direction": "expect",
       "event": "Disconnected",
       "fields": {
-        "reason": "removedByServer"
+        "reason": "peerRemoved"
       }
     },
     {

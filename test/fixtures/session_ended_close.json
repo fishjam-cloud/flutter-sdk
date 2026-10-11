@@ -1,0 +1,113 @@
+{
+  "name": "session_ended_close",
+  "description": "While joined (reconnection enabled), the server closes the socket with \"Room stopped\": the session ends with Disconnected(roomStopped) and no reconnection is attempted (SPEC \u00a74, D14).",
+  "config": {
+    "reconnect": {
+      "maxAttempts": 3,
+      "initialDelayMs": 500,
+      "delayMs": 500
+    }
+  },
+  "steps": [
+    {
+      "direction": "api",
+      "call": "connect",
+      "args": {
+        "url": "ws://fishjam.test",
+        "token": "peer-token",
+        "peerMetadata": {
+          "name": "alice"
+        }
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "authRequest": {
+          "token": "peer-token",
+          "sdkVersion": "<sdkVersion>"
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "authenticated": {
+          "roomType": "ROOM_TYPE_CONFERENCE",
+          "sdkDeprecation": {
+            "status": "STATUS_UP_TO_DATE"
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "AuthSucceeded",
+      "fields": {
+        "roomType": "conference"
+      }
+    },
+    {
+      "direction": "out",
+      "message": {
+        "peerMediaEvent": {
+          "connect": {
+            "metadataJson": "{\"name\":\"alice\"}"
+          }
+        }
+      }
+    },
+    {
+      "direction": "in",
+      "message": {
+        "serverMediaEvent": {
+          "connected": {
+            "endpointId": "local-peer",
+            "endpointIdToEndpoint": {
+              "local-peer": {
+                "endpointType": "exwebrtc",
+                "metadataJson": "{\"peer\":{\"name\":\"alice\"},\"server\":{}}"
+              }
+            },
+            "iceServers": [
+              {
+                "urls": [
+                  "turn:turn.fishjam.test:3478?transport=udp"
+                ],
+                "username": "turn-user",
+                "credential": "turn-pass"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "expect",
+      "event": "Joined",
+      "fields": {
+        "peerId": "local-peer",
+        "peers": [],
+        "components": []
+      }
+    },
+    {
+      "direction": "close",
+      "code": 1000,
+      "reason": "Room stopped"
+    },
+    {
+      "direction": "expect",
+      "event": "Disconnected",
+      "fields": {
+        "reason": "roomStopped",
+        "closeCode": 1000,
+        "closeReason": "Room stopped"
+      }
+    },
+    {
+      "direction": "noOut",
+      "ms": 1500
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 /// Client configuration and status types (SPEC §3.1, §6). Owner: Architect.
 library;
 
+import 'package:fishjam_client/src/models/errors.dart';
 import 'package:meta/meta.dart';
 
 /// Reconnection settings (SPEC §6).
@@ -75,34 +76,51 @@ enum ConnectionStatus {
   disconnected,
 }
 
-/// Why the client is no longer connected (SPEC §3, §4, §6).
+/// Why the client is no longer connected (SPEC §3, §4, §6). Every terminal
+/// end of a session maps to exactly one value.
 enum DisconnectReason {
   /// The app called `leave()`.
   left,
 
-  /// The server removed this peer from the room (media event).
-  removedByServer,
+  /// The peer was removed from the room by the app's backend (close reason
+  /// "Peer removed", or the server announced the local peer's removal).
+  peerRemoved,
 
-  /// The server reported an error and the client left.
+  /// The room was deleted (close reason "Room stopped").
+  roomStopped,
+
+  /// Another client connected with the same peer token (close reason "New
+  /// client connected as this peer").
+  replacedByNewClient,
+
+  /// The server sent an error media event and the client left.
   serverError,
 
-  /// The token or room is not valid.
+  /// The token or room is not valid; `AuthFailed` was emitted first.
   authError,
 
-  /// The server refused the join.
+  /// The server refused the join (including "node not found");
+  /// `JoinFailed` was emitted first.
   joinError,
 
-  /// The server ended the session (peer removed, room stopped, replaced).
-  sessionEnded,
-
-  /// The server rejected a malformed message.
+  /// The server rejected a malformed message (indicates an SDK bug).
   protocolError,
 
-  /// The connection was lost and reconnection is disabled or not applicable.
+  /// The connection was lost and reconnection is disabled or not applicable
+  /// (before the first `Joined`).
   connectionLost,
 
-  /// Every reconnection attempt failed.
-  reconnectionFailed,
+  /// Every reconnection attempt failed; `ReconnectionFailed` was emitted
+  /// first.
+  reconnectionFailed;
+
+  /// The reason for a session-ending close.
+  static DisconnectReason fromSessionEnd(SessionEndReason reason) =>
+      switch (reason) {
+        SessionEndReason.peerRemoved => peerRemoved,
+        SessionEndReason.roomStopped => roomStopped,
+        SessionEndReason.replacedByNewClient => replacedByNewClient,
+      };
 }
 
 /// Room types reported on authentication (SPEC §20).

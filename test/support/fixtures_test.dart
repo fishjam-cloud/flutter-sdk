@@ -315,7 +315,7 @@ void main() {
             {
               'direction': 'expect',
               'event': 'Disconnected',
-              'fields': {'reason': 'sessionEnded'},
+              'fields': {'reason': 'roomStopped'},
             },
           ],
         }),
@@ -401,7 +401,7 @@ class _ToyClient {
         });
         unawaited(
           t.onClose.then((_) {
-            events.add(const Disconnected(DisconnectReason.sessionEnded));
+            events.add(const Disconnected(DisconnectReason.roomStopped));
           }),
         );
         t.send(
