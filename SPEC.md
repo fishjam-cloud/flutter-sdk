@@ -354,7 +354,8 @@ limit)` / `LocalTrackEncodingBandwidthSet(trackId, variant, kbps)` — each exac
   - `offered` (in the `sdpOffer` in flight): store; after the answer is applied, send one
     `updateTrackMetadata` with the **latest** value.
   - `negotiated`: store, send `updateTrackMetadata{trackId, metadataJson}`.
-  `LocalTrackMetadataChanged(trackId, m)` is emitted when the update is sent (or carried by an offer).
+  `LocalTrackMetadataChanged(trackId, m)` is emitted when the update is sent, or at once for a `pending` track
+  (the coming offer carries it).
 
 ## 12. Simulcast
 

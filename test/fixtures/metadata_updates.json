@@ -1,6 +1,6 @@
 {
   "name": "metadata_updates",
-  "description": "updatePeerMetadata sends updateEndpointMetadata. updateTrackMetadata while the track is pending only stores the value (the sdpOffer carries it); while the offer is in flight it is deferred and sent once, with the latest value, after the answer; afterwards it is sent at once. Absent metadata is sent as \"null\", never an empty string (SPEC \u00a72.3, \u00a711.6).",
+  "description": "updatePeerMetadata sends updateEndpointMetadata. updateTrackMetadata while the offer is in flight is deferred and sent once, with the latest value, after the answer; afterwards it is sent at once. Absent metadata is sent as \"null\", never an empty string (SPEC \u00a72.3, \u00a711.6). A pending track's update (carried by the coming sdpOffer) is not covered here: a fixture cannot name a track before addTrack completes or an sdpOffer binds its id.",
   "steps": [
     {
       "direction": "api",
@@ -133,17 +133,6 @@
       }
     },
     {
-      "direction": "api",
-      "call": "updateTrackMetadata",
-      "args": {
-        "trackId": "${cam}",
-        "metadata": {
-          "type": "camera",
-          "paused": true
-        }
-      }
-    },
-    {
       "direction": "in",
       "message": {
         "serverMediaEvent": {
@@ -163,7 +152,7 @@
           "sdpOffer": {
             "sdp": "<sdp>",
             "trackIdToMetadataJson": {
-              "${cam}": "{\"type\":\"camera\",\"paused\":true}"
+              "${cam}": "{\"type\":\"camera\",\"paused\":false}"
             },
             "trackIdToBitrates": {
               "${cam}": {
