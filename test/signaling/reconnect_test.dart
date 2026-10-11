@@ -26,11 +26,26 @@ class _Host implements ReconnectHost {
   /// Track ids whose restore fails.
   final failingRestores = <String>{};
 
+  /// Number of upcoming `startSession` calls that throw.
+  int failingStarts = 0;
+
+  /// When set, `startSession` waits for it before throwing.
+  Completer<void>? startGate;
+
   @override
   Future<void> startSession(Object? peerMetadata) async {
     calls.add('startSession');
     startedWith.add(peerMetadata);
+    final gate = startGate;
+    if (gate != null) await gate.future;
+    if (failingStarts > 0) {
+      failingStarts--;
+      throw StateError('cannot start');
+    }
   }
+
+  @override
+  void endSession(DisconnectReason reason) => calls.add('endSession:$reason');
 
   @override
   Future<void> restoreTrack(LocalTrackContext track) async {
@@ -280,6 +295,12 @@ void main() {
           'restoreTrack:mic',
         ]);
         expect(host.restored, ['cam', 'mic']);
+        // Tracks that were not re-added are reported removed, in order,
+        // before Reconnected.
+        expect(
+          host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
+          ['ended', 'muted', 'broken'],
+        );
         expect(host.calls.sublist(host.calls.length - 2), [
           'releaseQueue',
           'emit:Reconnected',
@@ -369,6 +390,91 @@ void main() {
         ..onTerminalClose(const JoinClose(JoinErrorReason.nodeNotFound));
       expect(m.state, ReconnectState.idle);
       expect(host.calls, isEmpty);
+    });
+  });
+
+  group('a new session that cannot be started', () {
+    test('counts as a retryable loss of that attempt', () {
+      fakeAsync((async) {
+        host.failingStarts = 1;
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        expect(host.count('startSession'), 1);
+
+        async.elapse(const Duration(milliseconds: 799));
+        expect(host.count('startSession'), 1);
+        async.elapse(const Duration(milliseconds: 1));
+        expect(host.count('startSession'), 2);
+        expect(m.isReconnecting, isTrue);
+      });
+    });
+
+    test('a loss reported after the start error is ignored', () {
+      fakeAsync((async) {
+        host.failingStarts = 1;
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        // The failed start already scheduled attempt 2.
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(milliseconds: 800));
+        expect(host.count('startSession'), 2);
+        async.elapse(const Duration(seconds: 5));
+        expect(host.count('startSession'), 2);
+      });
+    });
+
+    test('a start error after the loss was reported is ignored', () {
+      fakeAsync((async) {
+        host
+          ..failingStarts = 1
+          ..startGate = Completer<void>();
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        host.startGate!.complete();
+        host.startGate = null;
+        async.elapse(const Duration(milliseconds: 800));
+        expect(host.count('startSession'), 2);
+        // Attempt 3 was not scheduled by the late start error.
+        async.elapse(const Duration(seconds: 5));
+        expect(host.count('startSession'), 2);
+        expect(m.isReconnecting, isTrue);
+      });
+    });
+
+    test('on the last attempt fails the reconnection and ends the '
+        'session through the host', () {
+      fakeAsync((async) {
+        host.failingStarts = 1;
+        final m = manager(const ReconnectConfig(maxAttempts: 1))
+          ..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+
+        expect(m.state, ReconnectState.failed);
+        expect(host.calls.sublist(host.calls.length - 3), [
+          'clearQueue',
+          'emit:ReconnectionFailed',
+          'endSession:${DisconnectReason.reconnectionFailed}',
+        ]);
+        expect(host.events.whereType<Disconnected>(), isEmpty);
+      });
+    });
+
+    test('a start error after reset() does nothing', () {
+      fakeAsync((async) {
+        host
+          ..failingStarts = 1
+          ..startGate = Completer<void>();
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        m.reset();
+        host.startGate!.complete();
+        async.elapse(const Duration(seconds: 5));
+
+        expect(m.state, ReconnectState.idle);
+        expect(host.count('startSession'), 1);
+        expect(host.calls.where((c) => c.startsWith('endSession')), isEmpty);
+      });
     });
   });
 

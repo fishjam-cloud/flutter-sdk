@@ -171,6 +171,13 @@ class _SignalingClient implements ReconnectHost {
   Future<void> restoreTrack(LocalTrackContext track) async {}
 
   @override
+  void endSession(DisconnectReason reason) {
+    status = ConnectionStatus.disconnected;
+    _session = null;
+    events.add(Disconnected(reason));
+  }
+
+  @override
   void holdQueue() => queue.hold();
 
   @override

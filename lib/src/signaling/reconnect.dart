@@ -37,8 +37,16 @@ final class ReconnectSnapshot {
 /// Side effects of [ReconnectManager], implemented by the client facade.
 abstract interface class ReconnectHost {
   /// Tears down the old session silently and starts a new one that sends
-  /// [peerMetadata] in `connect`.
+  /// [peerMetadata] in `connect`. Losses of the new session are reported
+  /// back as usual; if this throws, the manager treats it as a retryable loss
+  /// of the attempt.
   Future<void> startSession(Object? peerMetadata);
+
+  /// Tears the session down and emits `Disconnected(reason)`. Called only
+  /// when the manager gives up on its own: [startSession] threw on the last
+  /// attempt (`ReconnectionFailed` was emitted just before). Later reports
+  /// about the abandoned session must be ignored.
+  void endSession(DisconnectReason reason);
 
   /// Publishes [track]'s media again; the new track gets a new id.
   Future<void> restoreTrack(LocalTrackContext track);
@@ -63,12 +71,19 @@ abstract interface class ReconnectHost {
 /// - The caller reports every loss of the current session — including a new
 ///   session that fails to open — through [onRetryableLoss] or
 ///   [onTerminalClose], and every `connected` through [onSessionJoined].
-/// - The manager emits only `ReconnectionStarted`, `ReconnectionFailed` and
-///   `Reconnected`. It never emits `Disconnected` (D9): when
+/// - The manager emits only `ReconnectionStarted`, `ReconnectionFailed`,
+///   `Reconnected` and, while restoring, `LocalTrackRemoved` for tracks that
+///   are not re-added. It never emits `Disconnected` (D9): when
 ///   [onRetryableLoss] returns `false` the caller ends the session with
 ///   `Disconnected(reconnectionFailed)` if [state] is
 ///   [ReconnectState.failed], else `Disconnected(connectionLost)`; after a
 ///   terminal close the caller emits the error event and `Disconnected`.
+///   The one exception is [ReconnectHost.startSession] throwing on the last
+///   attempt, where the manager calls [ReconnectHost.endSession].
+/// - With `addTracksOnReconnect`, only tracks with a live media track are
+///   re-added. Muted tracks (no media track) and ended tracks are not, nor
+///   are tracks whose re-add fails; `LocalTrackRemoved(oldTrackId)` is
+///   emitted for each of them (SPEC §6).
 class ReconnectManager {
   /// Creates a manager.
   ReconnectManager({required this._config, required this._host});
@@ -139,20 +154,25 @@ class ReconnectManager {
   /// restores tracks, releases the queue and emits `Reconnected`.
   ///
   /// Only live tracks are restored; ended or muted ones are skipped and a
-  /// failed restore does not stop the others (D2). If the session is lost
+  /// failed restore does not stop the others (D2). Every track that is not
+  /// restored is reported with `LocalTrackRemoved`. If the session is lost
   /// while restoring, `Reconnected` is not emitted for it.
   Future<void> onSessionJoined() async {
     if (_state != ReconnectState.reconnecting) return;
     final generation = _generation;
     if (_config.addTracksOnReconnect) {
       for (final track in _snapshot!.tracks) {
-        if (track.rtcTrack?.isLive != true) continue;
-        try {
-          await _host.restoreTrack(track);
-        } on Object {
-          // The host reports the failure; the other tracks still go.
+        var restored = false;
+        if (track.rtcTrack?.isLive ?? false) {
+          try {
+            await _host.restoreTrack(track);
+            restored = true;
+          } on Object {
+            // The host reports the failure; the other tracks still go.
+          }
+          if (generation != _generation) return;
         }
-        if (generation != _generation) return;
+        if (!restored) _host.emit(LocalTrackRemoved(track.trackId));
       }
     }
     _finish(ReconnectState.idle, release: true);
@@ -168,9 +188,27 @@ class ReconnectManager {
     _timer = Timer(_config.delayBeforeAttempt(attempt), () {
       _timer = null;
       _attempt = attempt;
-      _generation++;
-      unawaited(_host.startSession(_snapshot!.peerMetadata));
+      final generation = ++_generation;
+      unawaited(
+        _host
+            .startSession(_snapshot!.peerMetadata)
+            .then<void>(
+              (_) {},
+              onError: (Object error) =>
+                  _onStartFailed(generation, RetryableClose(error: error)),
+            ),
+      );
     });
+  }
+
+  /// [ReconnectHost.startSession] threw. Unless the attempt was already
+  /// superseded (its loss reported, a terminal close, `reset`), this is the
+  /// attempt's retryable loss.
+  void _onStartFailed(int generation, RetryableClose loss) {
+    if (generation != _generation || !isReconnecting) return;
+    if (!onRetryableLoss(loss, _snapshot!)) {
+      _host.endSession(DisconnectReason.reconnectionFailed);
+    }
   }
 
   /// Leaves the current reconnection: cancels the timer, invalidates pending
