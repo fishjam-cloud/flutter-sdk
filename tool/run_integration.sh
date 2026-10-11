@@ -4,7 +4,7 @@
 #
 # Usage:
 #   FISHJAM_URL=http://localhost:<port> FISHJAM_MANAGEMENT_TOKEN=<token> \
-#     tool/run_integration.sh [simulator name or UDID]
+#     tool/run_integration.sh [simulator UDID]
 #
 # Without an argument the first available iPhone simulator is used.
 set -euo pipefail
@@ -31,14 +31,27 @@ xcrun simctl boot "$TARGET" 2>/dev/null || true # already booted is fine
 xcrun simctl bootstatus "$TARGET" -b >/dev/null
 open -a Simulator
 
-# Grant media access up front so no permission dialog blocks the test.
-for service in microphone camera; do
-  xcrun simctl privacy "$TARGET" grant "$service" "$BUNDLE_ID" || true
-done
+DEFINES=(
+  --dart-define=FISHJAM_URL="$FISHJAM_URL"
+  --dart-define=FISHJAM_MANAGEMENT_TOKEN="$FISHJAM_MANAGEMENT_TOKEN"
+)
 
 cd "$ROOT/example"
 mise exec -- flutter pub get
+
+# Install the test app first: privacy grants apply to an installed app.
+mise exec -- flutter build ios --simulator --debug \
+  -t integration_test/room_test.dart "${DEFINES[@]}"
+xcrun simctl install "$TARGET" build/ios/iphonesimulator/Runner.app
+
+# Grant media access so no permission dialog blocks the test.
+for service in microphone camera; do
+  if ! xcrun simctl privacy "$TARGET" grant "$service" "$BUNDLE_ID"; then
+    echo "WARNING: could not grant $service access to $BUNDLE_ID;" \
+      "the test may stop at a permission dialog." >&2
+  fi
+done
+
 mise exec -- flutter test integration_test \
   -d "$TARGET" \
-  --dart-define=FISHJAM_URL="$FISHJAM_URL" \
-  --dart-define=FISHJAM_MANAGEMENT_TOKEN="$FISHJAM_MANAGEMENT_TOKEN"
+  "${DEFINES[@]}"

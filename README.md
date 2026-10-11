@@ -52,6 +52,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 final client = FishjamClient();
 
+// Subscribe before connect(): events are not replayed to late listeners.
 client.events.listen((event) {
   switch (event) {
     case TrackReady(:final track):
@@ -67,7 +68,11 @@ client.events.listen((event) {
   }
 });
 
-await client.connect(url: fishjamUrl, token: peerToken, peerMetadata: {'name': 'Alice'});
+await client.connect(
+  url: fishjamUrlFromId(fishjamId), // or your Fishjam server's URL
+  token: peerToken,
+  peerMetadata: {'name': 'Alice'},
+);
 
 final media = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': true});
 final camera = media.getVideoTracks().first;
@@ -92,9 +97,18 @@ await client.dispose();
 ```
 
 `connect()` completes when the room is joined and throws `AuthException`, `JoinException` or
-`ConnectionException` otherwise. A lost connection is re-established automatically (`ReconnectConfig`). After
-`Reconnected`, create the data channels again; local tracks are re-published only with
-`ReconnectConfig(addTracksOnReconnect: true)`, under new track ids (the old ids get `LocalTrackRemoved`).
+`ConnectionException` otherwise (`ArgumentError` for a URL that is not ws, wss, http or https).
+
+A lost connection is re-established automatically (`ReconnectConfig`):
+
+- From `ReconnectionStarted` until `Reconnected` the status is `reconnecting` and calls that need the
+  session (track operations, metadata updates, `createDataChannels()`) fail at once with `StateError`.
+- Before the new `Joined`, the remote tracks and peers you knew are reported with `TrackRemoved` and
+  `PeerLeft` / `ComponentRemoved`; the new `Joined` lists the room as it is now.
+- Local tracks are re-published only with `ReconnectConfig(addTracksOnReconnect: true)`, under new track ids
+  (the old ids get `LocalTrackRemoved`). Create the data channels again after `Reconnected`.
+
+`replaceTrack(id, null)` mutes by sending nothing; the device keeps capturing until you stop the track.
 
 Livestreams without a room use `publishLivestream` (WHIP) and `receiveLivestream` (WHEP).
 

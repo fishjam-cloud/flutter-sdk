@@ -9,7 +9,7 @@ against the real `FishjamClient` in `test/client/client_fixtures_test.dart`.
 
 | Web SDK | Dart | Notes |
 |---|---|---|
-| `new FishjamClient({ reconnect, debug, clientType })` | `FishjamClient(debug:, reconnect:)` | `clientType` dropped: always `flutter`. `rtcAdapter:` and `transportFactory:` exist for tests only. |
+| `new FishjamClient({ reconnect, debug, clientType })` | `FishjamClient(debug:, reconnect:)` | `clientType` dropped: always `flutter`. Test hooks are internal (`FishjamClient.internal`). |
 | `reconnect: boolean \| ReconnectConfig` | `ReconnectConfig` (default enabled), `ReconnectConfig.disabled` | delays are `Duration`s |
 | `status: 'new' \| 'initialized'` | `status` → `ConnectionStatus` | richer state (SPEC §3.1) |
 | `isReconnecting()` | `isReconnecting` | |
@@ -20,7 +20,8 @@ against the real `FishjamClient` in `test/client/client_fixtures_test.dart`.
 
 | Web SDK | Dart | Notes |
 |---|---|---|
-| `connect({ url, token, peerMetadata })` | `connect(url:, token:, peerMetadata:)` | always settles (SPEC §3.2) |
+| `connect({ url, token, peerMetadata })` | `connect(url:, token:, peerMetadata:)` | always settles (SPEC §3.2); only ws/wss/http/https URLs |
+| react-client `resolveFishjamUrl(fishjamId)` | `fishjamUrlFromId(fishjamId)` | same format (SPEC §2.1) |
 | `leave()` | `leave()` | sends `disconnect`, then tears down (D1) |
 | `disconnect()` | `leave()` | one method: leaving always tears down |
 | `handleSdkDeprecation(...)` | internal | logged (SPEC §3.2) |
@@ -61,7 +62,7 @@ against the real `FishjamClient` in `test/client/client_fixtures_test.dart`.
 
 | Web SDK | Dart | Notes |
 |---|---|---|
-| `createDataChannels()` | `createDataChannels()` | per session, as in the web SDK: create them again after `Reconnected` |
+| `createDataChannels()` | `createDataChannels()` | per session, as in the web SDK: create them again after `Reconnected`; fails with `StateError` (no event) before `Joined` or while reconnecting |
 | `publishData(data, { reliable })` | `publishData(Uint8List, reliable:)` | |
 | `subscribeData(cb, { reliable })` → unsubscribe fn | `dataStream(reliable:)` → `Stream<Uint8List>` | cancel the subscription to unsubscribe |
 | `getDataChannelsReadiness()` | `dataChannelsReady` | |
@@ -130,7 +131,7 @@ against the real `FishjamClient` in `test/client/client_fixtures_test.dart`.
 | `reconnected` | `Reconnected` | always follows a successful reconnection (D2); old local track ids get `LocalTrackRemoved` first (D21) |
 | `reconnectionRetriesLimitReached` | `ReconnectionFailed` | |
 | `connectionError` | `ConnectionError(message)` | |
-| `peerJoined` / `peerLeft` / `peerUpdated` | `PeerJoined` / `PeerLeft` / `PeerUpdated` | |
+| `peerJoined` / `peerLeft` / `peerUpdated` | `PeerJoined` / `PeerLeft` / `PeerUpdated` | on reconnect, old peers and tracks are reported removed before the new `Joined` (D22) |
 | `componentAdded` / `componentRemoved` / `componentUpdated` | `ComponentAdded` / `ComponentRemoved` / `ComponentUpdated` | |
 | `trackAdded` / `trackReady` / `trackRemoved` / `trackUpdated` | `TrackAdded` / `TrackReady` / `TrackRemoved` / `TrackUpdated` | |
 | `encodingChanged` (client and track context) | `TrackEncodingChanged` | |
