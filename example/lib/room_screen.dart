@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fishjam_client/fishjam_client.dart';
@@ -57,12 +58,117 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _cameraOn = true;
   bool _microphoneOn = true;
   String _status = 'Connecting…';
+  final _audioOutput = AudioOutputManager.instance;
+  AudioOutputChangedInfo _audio = const AudioOutputChangedInfo(
+    currentAudioOutput: null,
+    availableAudioOutputs: [],
+  );
 
   @override
   void initState() {
     super.initState();
+    _subscriptions.add(
+      _audioOutput.onAudioOutputChanged.listen(
+        (info) => setState(() => _audio = info),
+      ),
+    );
+    unawaited(_refreshAudioOutputs());
     unawaited(_start());
   }
+
+  Future<void> _refreshAudioOutputs() async {
+    try {
+      final current = await _audioOutput.getCurrentAudioOutput();
+      final available = await _audioOutput.getAvailableAudioOutputs();
+      if (!mounted) return;
+      setState(
+        () => _audio = AudioOutputChangedInfo(
+          currentAudioOutput: current,
+          availableAudioOutputs: available,
+        ),
+      );
+    } on Object catch (e) {
+      _setStatus('Audio output: $e');
+    }
+  }
+
+  Future<void> _chooseAudioOutput() async {
+    await _refreshAudioOutputs();
+    if (!mounted) return;
+    final current = _audio.currentAudioOutput;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        void run(Future<void> Function() action) {
+          Navigator.of(sheetContext).pop();
+          unawaited(
+            action().catchError((Object e) {
+              if (e case AudioOutputException(
+                code: AudioOutputErrorCode.superseded,
+              )) {
+                return;
+              }
+              _setStatus('Audio output: $e');
+            }),
+          );
+        }
+
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: Platform.isIOS
+                ? [
+                    ListTile(
+                      leading: const Icon(Icons.volume_up),
+                      title: const Text('Speaker'),
+                      onTap: () => run(
+                        () => _audioOutput.ios.overrideAudioOutput(
+                          IosAudioOutputOverride.speaker,
+                        ),
+                      ),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.phone_in_talk),
+                      title: const Text('Default (receiver or headset)'),
+                      onTap: () => run(
+                        () => _audioOutput.ios.overrideAudioOutput(
+                          IosAudioOutputOverride.none,
+                        ),
+                      ),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.bluetooth),
+                      title: const Text('Choose device…'),
+                      subtitle: Text('Now: ${current?.name ?? 'unknown'}'),
+                      onTap: () => run(_audioOutput.ios.showAudioRoutePicker),
+                    ),
+                  ]
+                : [
+                    for (final device in _audio.availableAudioOutputs)
+                      ListTile(
+                        leading: Icon(_audioIcon(device.type)),
+                        title: Text(device.name),
+                        subtitle: Text(device.type.name),
+                        selected: device.id == current?.id,
+                        onTap: () => run(
+                          () =>
+                              _audioOutput.android.selectAudioOutput(device.id),
+                        ),
+                      ),
+                  ],
+          ),
+        );
+      },
+    );
+  }
+
+  static IconData _audioIcon(AudioDeviceType? type) => switch (type) {
+    AudioDeviceType.speaker => Icons.volume_up,
+    AudioDeviceType.earpiece => Icons.phone_in_talk,
+    AudioDeviceType.bluetooth => Icons.bluetooth_audio,
+    AudioDeviceType.wiredHeadset || AudioDeviceType.usb => Icons.headphones,
+    _ => Icons.speaker,
+  };
 
   Future<void> _start() async {
     await _localRenderer.initialize();
@@ -367,6 +473,10 @@ class _RoomScreenState extends State<RoomScreen> {
         IconButton.filledTonal(
           onPressed: _toggleCamera,
           icon: Icon(_cameraOn ? Icons.videocam : Icons.videocam_off),
+        ),
+        IconButton.filledTonal(
+          onPressed: _chooseAudioOutput,
+          icon: Icon(_audioIcon(_audio.currentAudioOutput?.type)),
         ),
         FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: Colors.red),

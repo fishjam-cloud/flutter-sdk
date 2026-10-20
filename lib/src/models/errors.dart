@@ -168,6 +168,41 @@ final class LivestreamException extends FishjamException {
   final Object? cause;
 }
 
+/// Why an `AudioOutputManager` call failed.
+enum AudioOutputErrorCode {
+  /// Invalid device id, device unavailable, or the platform call failed.
+  select,
+
+  /// A newer `selectAudioOutput` call was made first. Safe to ignore.
+  superseded,
+
+  /// The system did not confirm the route change within 3 s.
+  timeout,
+
+  /// The plugin stopped observing audio devices before the change completed.
+  cancelled,
+
+  /// An override value the platform does not accept.
+  invalid,
+
+  /// iOS rejected the output override.
+  override,
+
+  /// Any other native failure.
+  unknown,
+}
+
+/// Thrown by `AudioOutputManager`.
+final class AudioOutputException extends FishjamException {
+  AudioOutputException(this.code, String? detail)
+    : super('Audio output failed: ${code.name}${_suffix(detail)}');
+
+  final AudioOutputErrorCode code;
+
+  static String _suffix(String? detail) =>
+      detail == null || detail.isEmpty ? '' : ' ($detail)';
+}
+
 /// Thrown when a video track is added to an audio-only room.
 final class TrackTypeError extends Error {
   TrackTypeError();

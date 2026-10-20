@@ -580,6 +580,39 @@ When `authenticated.roomType` is `ROOM_TYPE_AUDIO_ONLY`, `addTrack` with a video
   `@internal`); a context built from test fakes returns `null` from the native getters but keeps its state
   (`isReady`, `isMuted`).
 
+## 20b. Audio output routing
+
+`AudioOutputManager.instance` lists, reads and switches the device that plays call audio. It mirrors the
+React Native SDK's `AudioOutputManager` and talks to the SDK's native plugin over the method channel
+`io.fishjam.client/audio_output` and the event channel `io.fishjam.client/audio_output_events`.
+
+- A device is `{type, nativeType, name, id}`. `type` is one of `earpiece`, `speaker`, `bluetooth`,
+  `wiredHeadset`, `usb`, `hdmi`, `airplay`, `carAudio`, `hearingAid`, `lineOut`, `unknown`; any other value
+  received from native code becomes `unknown`. `nativeType` is the platform name (e.g. `bluetoothHFP` on iOS,
+  `bluetoothSCO` on Android).
+- Ids: on iOS the built-in speaker is `speaker`, the built-in receiver is `receiver`, other ports use the
+  port UID. On Android the id is `AudioDeviceInfo.getId()` as a string.
+- `getAvailableAudioOutputs()` and `getCurrentAudioOutput()` read the state. The current device is `null`
+  when unknown. `onAudioOutputChanged` emits `{currentAudioOutput, availableAudioOutputs}` whenever the route
+  or the device list changes.
+- iOS only (`ios`): `overrideAudioOutput(speaker | none)` forces the built-in speaker or clears the override;
+  `showAudioRoutePicker()` opens the system route picker, the only way to pick a specific Bluetooth device.
+- Android only (`android`): `selectAudioOutput(id)` completes only after the system reports that device as
+  current. On API 31+ it uses `setCommunicationDevice` (earpiece: `clearCommunicationDevice`); below, it
+  toggles speakerphone and Bluetooth SCO.
+- Calling an `ios` method on Android or an `android` method on iOS throws `UnsupportedError` without calling
+  native code.
+- Native failures become `AudioOutputException(code)`: `select` (bad id, device unavailable, platform call
+  failed), `superseded` (a newer `selectAudioOutput` call was made; safe to ignore), `timeout` (no
+  confirmation within 3 s), `cancelled` (the plugin stopped observing), `invalid` (bad override value),
+  `override` (iOS rejected the override), `unknown` (any other code).
+- On Android the client puts the audio system into communication mode on `Joined` and returns it to normal
+  when the session ends (any `Disconnected`). Entering communication mode routes to a connected Bluetooth
+  headset, and a headset connected during the call is routed to as well. Failures of these calls are logged
+  and never escape.
+- On Android the plugin turns off flutter_webrtc's own routing (`AudioSwitchManager`) when it is attached,
+  so the two do not fight over the route. On iOS flutter_webrtc keeps configuring the audio session category.
+
 ## 21. Logging
 
 One SDK logger, created from `FishjamClient(debug: bool)`. Messages are prefixed with `[FISHJAM]` and emitted
@@ -611,6 +644,7 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D20 | a failed `replaceTrack` is swallowed; the call succeeds | rolled back, then the call fails with the error (§11.3) | the app learns the media was not replaced |
 | D21 | local track ids of the lost session silently disappear on reconnect | `LocalTrackRemoved` for every old id; restored tracks get `LocalTrackAdded` with new ids (§6) | apps can drop stale ids |
 | D22 | remote peers and tracks of the lost session are kept and re-announced with `peerJoined` / `trackAdded` after reconnecting | `TrackRemoved` and `PeerLeft` / `ComponentRemoved` for all of them before the new `Joined`, whose snapshot is the source of truth (§6) | no stale or duplicate remote state |
+| D23 | (React Native SDK) audio output routing goes through Android Telecom while a Telecom call is active | always `AudioManager` (§20b) | this SDK has no Telecom integration yet |
 
 ## 23. Golden fixtures
 

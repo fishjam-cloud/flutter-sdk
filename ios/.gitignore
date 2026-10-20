@@ -1,0 +1,11 @@
+.idea/
+.DS_Store
+DerivedData/
+build/
+GeneratedPluginRegistrant.h
+GeneratedPluginRegistrant.m
+.generated/
+xcuserdata
+/Flutter/Generated.xcconfig
+/Flutter/ephemeral/
+/Flutter/flutter_export_environment.sh

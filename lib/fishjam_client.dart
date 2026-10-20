@@ -1,6 +1,15 @@
 /// Fishjam client SDK for Flutter. Start with `FishjamClient`.
 library;
 
+export 'src/audio_output/audio_output_manager.dart'
+    show
+        AndroidAudioOutput,
+        AudioDevice,
+        AudioDeviceType,
+        AudioOutputChangedInfo,
+        AudioOutputManager,
+        IosAudioOutput,
+        IosAudioOutputOverride;
 export 'src/fishjam_client.dart' show FishjamClient;
 export 'src/livestream_api.dart'
     show
@@ -12,6 +21,8 @@ export 'src/models/config.dart';
 export 'src/models/endpoint.dart' show Component, LocalPeer, Metadata, Peer;
 export 'src/models/errors.dart'
     show
+        AudioOutputErrorCode,
+        AudioOutputException,
         AuthErrorReason,
         AuthException,
         ConnectionException,
