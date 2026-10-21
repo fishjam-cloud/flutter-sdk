@@ -69,6 +69,7 @@ class FishjamClient {
     RtcAdapter? rtcAdapter,
     this._transportFactory,
     NetworkMonitor? networkMonitor,
+    Duration networkSettle = const Duration(milliseconds: 500),
   }) : _adapter = rtcAdapter ?? const FlutterWebrtcAdapter(),
        _logger = FishjamLogger(enabled: debug) {
     _reconnect = ReconnectManager(config: reconnect, host: _Host(this));
@@ -77,6 +78,7 @@ class FishjamClient {
         monitor: networkMonitor,
         logger: _logger,
         onChanged: _onNetworkChanged,
+        settle: networkSettle,
       );
     }
     _dataChannels = DataChannelManager(
@@ -432,17 +434,28 @@ class FishjamClient {
     });
   }
 
-  /// A network change while joined is a loss: the socket and the peer
-  /// connection are bound to the network that went away.
-  void _onNetworkChanged({required bool online}) {
-    _logger.debug('Network changed (online: $online)');
+  /// Losing the network, or the one in use, while joined is a loss: the
+  /// socket and the peer connection are bound to the network that went away.
+  void _onNetworkChanged(NetworkChange change, DateTime began) {
+    _logger.debug('Network ${change.name}');
     if (!reconnect.isEnabled) return;
-    if (_status == ConnectionStatus.joined) {
+    if (_status == ConnectionStatus.joined &&
+        change != NetworkChange.available) {
       unawaited(
-        _onRetryableLoss(const RetryableClose(reason: 'network changed')),
+        _onRetryableLoss(
+          RetryableClose(
+            reason: change == NetworkChange.lost
+                ? 'network lost'
+                : 'network changed',
+          ),
+        ),
       );
     }
-    _reconnect.onNetworkChanged(online: online);
+    if (change == NetworkChange.lost) {
+      _reconnect.onNetworkLost();
+    } else {
+      _reconnect.onNetworkAvailable(since: began);
+    }
   }
 
   Future<void> _onRetryableLoss(RetryableClose reason) async {

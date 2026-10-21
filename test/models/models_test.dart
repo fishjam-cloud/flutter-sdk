@@ -179,6 +179,26 @@ void main() {
       expect(ReconnectConfig.disabled.isEnabled, isFalse);
     });
 
+    test(
+      'waits at most 60 s for the network; the limit is part of equality',
+      () {
+        expect(
+          const ReconnectConfig().offlineTimeout,
+          const Duration(seconds: 60),
+        );
+        const shorter = ReconnectConfig(offlineTimeout: Duration(seconds: 5));
+        expect(shorter, isNot(const ReconnectConfig()));
+        expect(
+          shorter,
+          const ReconnectConfig(offlineTimeout: Duration(seconds: 5)),
+        );
+        expect(
+          shorter.hashCode,
+          const ReconnectConfig(offlineTimeout: Duration(seconds: 5)).hashCode,
+        );
+      },
+    );
+
     test('delay of attempt n is initialDelay + (n - 1) * delay', () {
       const config = ReconnectConfig(
         initialDelay: Duration(milliseconds: 100),

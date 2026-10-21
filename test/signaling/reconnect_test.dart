@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:fishjam_client/src/models/config.dart';
 import 'package:fishjam_client/src/models/errors.dart';
@@ -537,21 +538,40 @@ void main() {
   });
 
   group('network changes (SPEC §6.1)', () {
-    test('an attempt that comes due while offline waits, uncounted, and '
-        'starts as soon as the network is back', () {
+    test('losing the network cancels the scheduled attempt; while offline '
+        'nothing starts and a loss waits instead of using an attempt', () {
       fakeAsync((async) {
         final m = manager()
           ..onRetryableLoss(_loss, snapshot())
-          ..onNetworkChanged(online: false);
+          ..onNetworkLost();
         async.elapse(const Duration(seconds: 30));
         expect(host.count('startSession'), 0);
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(seconds: 20));
+        expect(host.count('startSession'), 0);
         expect(m.isReconnecting, isTrue);
+      });
+    });
 
-        m.onNetworkChanged(online: true);
+    test('a loss while already offline waits for the network', () {
+      fakeAsync((async) {
+        final m = manager()..onNetworkLost();
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(seconds: 30));
+        expect(host.count('startSession'), 0);
+        expect(host.count('emit:ReconnectionStarted'), 1);
+      });
+    });
+
+    test('the network back starts an attempt at once with a fresh budget', () {
+      fakeAsync((async) {
+        final m = manager()
+          ..onRetryableLoss(_loss, snapshot())
+          ..onNetworkLost()
+          ..onNetworkAvailable(since: clock.now());
         async.flushMicrotasks();
         expect(host.count('startSession'), 1);
 
-        // The wait used none of the 3 attempts.
         expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
         async.elapse(const Duration(milliseconds: 800));
         expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
@@ -571,15 +591,12 @@ void main() {
         m.onRetryableLoss(_loss, snapshot());
         expect(host.count('startSession'), 2);
 
-        m.onNetworkChanged(online: true);
+        m.onNetworkAvailable(since: clock.now());
         async.flushMicrotasks();
         expect(host.count('startSession'), 3);
-
-        // The scheduled attempt 3 does not run on top.
         async.elapse(const Duration(seconds: 5));
         expect(host.count('startSession'), 3);
 
-        // 2 more attempts follow the immediate one.
         expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
         async.elapse(const Duration(milliseconds: 800));
         expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
@@ -589,8 +606,23 @@ void main() {
       });
     });
 
-    test('a new network abandons a running attempt; its late start error '
-        'is ignored', () {
+    test('an attempt that started after the change began is kept: it already '
+        'runs on the new network', () {
+      fakeAsync((async) {
+        host.startGate = Completer<void>();
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        final began = clock.now();
+        async.elapse(const Duration(milliseconds: 500));
+        expect(host.count('startSession'), 1);
+
+        m.onNetworkAvailable(since: began);
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 1);
+      });
+    });
+
+    test('an attempt that started before the change began is abandoned; its '
+        'late start error is ignored', () {
       fakeAsync((async) {
         final gate = host.startGate = Completer<void>();
         host.failingStarts = 1;
@@ -598,11 +630,11 @@ void main() {
         async.elapse(const Duration(milliseconds: 500));
         expect(host.count('startSession'), 1);
 
-        m.onNetworkChanged(online: true);
+        async.elapse(const Duration(milliseconds: 100));
+        m.onNetworkAvailable(since: clock.now());
         async.flushMicrotasks();
         expect(host.count('startSession'), 2);
 
-        // The abandoned attempt throws; nothing new is scheduled.
         gate.complete();
         async.elapse(const Duration(seconds: 5));
         expect(host.count('startSession'), 2);
@@ -623,7 +655,7 @@ void main() {
         unawaited(m.onSessionJoined());
         async.flushMicrotasks();
 
-        m.onNetworkChanged(online: true);
+        m.onNetworkAvailable(since: clock.now());
         async.flushMicrotasks();
         expect(host.count('startSession'), 2);
 
@@ -633,20 +665,101 @@ void main() {
       });
     });
 
+    test('a session that joins while offline does not complete the '
+        'reconnection; the network back starts a new attempt', () {
+      fakeAsync((async) {
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        m.onNetworkLost();
+        unawaited(m.onSessionJoined());
+        async.flushMicrotasks();
+        expect(host.events.whereType<Reconnected>(), isEmpty);
+        expect(m.isReconnecting, isTrue);
+
+        m.onNetworkAvailable(since: clock.now());
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 2);
+      });
+    });
+
+    test('offline for offlineTimeout fails the reconnection', () {
+      fakeAsync((async) {
+        final m =
+            manager(
+                const ReconnectConfig(offlineTimeout: Duration(seconds: 10)),
+              )
+              ..onRetryableLoss(_loss, snapshot())
+              ..onNetworkLost();
+        async.elapse(const Duration(milliseconds: 9999));
+        expect(m.isReconnecting, isTrue);
+
+        async.elapse(const Duration(milliseconds: 1));
+        expect(m.state, ReconnectState.failed);
+        expect(host.calls.sublist(host.calls.length - 3), [
+          'clearQueue',
+          'emit:ReconnectionFailed',
+          'endSession:${DisconnectReason.reconnectionFailed}',
+        ]);
+      });
+    });
+
+    test('the network back stops the offline timeout', () {
+      fakeAsync((async) {
+        final m =
+            manager(
+                const ReconnectConfig(offlineTimeout: Duration(seconds: 10)),
+              )
+              ..onRetryableLoss(_loss, snapshot())
+              ..onNetworkLost();
+        async.elapse(const Duration(seconds: 5));
+        m.onNetworkAvailable(since: clock.now());
+        async.elapse(const Duration(seconds: 30));
+        expect(host.events.whereType<ReconnectionFailed>(), isEmpty);
+      });
+    });
+
+    test('one reconnection makes at most 3 × maxAttempts attempts', () {
+      fakeAsync((async) {
+        final m = manager(const ReconnectConfig(maxAttempts: 2))
+          ..onRetryableLoss(_loss, snapshot());
+        // A network that keeps changing restarts the budget every time.
+        for (var i = 0; i < 6; i++) {
+          async.elapse(const Duration(seconds: 1));
+          m.onNetworkAvailable(since: clock.now());
+          async.flushMicrotasks();
+          m.onRetryableLoss(_loss, snapshot());
+        }
+        expect(host.count('startSession'), 6);
+        expect(m.state, ReconnectState.failed);
+        expect(host.events.whereType<ReconnectionFailed>(), hasLength(1));
+      });
+    });
+
     test('changes outside a reconnection start nothing', () {
       fakeAsync((async) {
         final m = manager()
-          ..onNetworkChanged(online: false)
-          ..onNetworkChanged(online: true);
+          ..onNetworkLost()
+          ..onNetworkAvailable(since: clock.now());
         async.elapse(const Duration(seconds: 5));
         expect(host.calls, isEmpty);
 
         m
           ..onRetryableLoss(_loss, snapshot())
           ..reset()
-          ..onNetworkChanged(online: true);
+          ..onNetworkAvailable(since: clock.now());
         async.elapse(const Duration(seconds: 5));
         expect(host.count('startSession'), 0);
+      });
+    });
+
+    test('reset forgets that the device was offline', () {
+      fakeAsync((async) {
+        manager()
+          ..onNetworkLost()
+          ..reset()
+          ..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        expect(host.count('startSession'), 1);
       });
     });
   });

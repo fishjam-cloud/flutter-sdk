@@ -170,8 +170,8 @@ All client → server messages go through a single ordered queue in front of the
 ## 6. Reconnection
 
 Configuration (`ReconnectConfig`): `maxAttempts` (default 3), `initialDelay` (default 500 ms), `delay`
-(default 500 ms), `addTracksOnReconnect` (default false). `ReconnectConfig.disabled` turns it off. Reconnect is
-enabled with defaults unless configured otherwise.
+(default 500 ms), `addTracksOnReconnect` (default false), `offlineTimeout` (default 60 s, [§6.1](#61-network-changes)).
+`ReconnectConfig.disabled` turns it off. Reconnect is enabled with defaults unless configured otherwise.
 
 States: `idle`, `reconnecting`, `failed`.
 
@@ -179,8 +179,7 @@ States: `idle`, `reconnecting`, `failed`.
 |---|---|---|---|
 | idle (joined) | retryable loss: retryable close, socket error, pong timeout, peer connection `failed`, ICE `failed`, ICE `disconnected` for 3 s ([§8.4](#84-peer-connection)), network change ([§6.1](#61-network-changes)) | snapshot local peer metadata (`peer` part) and local tracks; emit `ReconnectionStarted`; schedule attempt 1 | reconnecting |
 | reconnecting | attempt timer fires while online | tear down old session silently (no `Disconnected`) without waiting for its socket to finish closing; start a new session with the snapshot metadata | reconnecting |
-| reconnecting | attempt timer fires while offline ([§6.1](#61-network-changes)) | nothing; the attempt waits for the network and is not counted | reconnecting |
-| reconnecting | the network comes back or changes ([§6.1](#61-network-changes)) | abandon the waiting, scheduled or running attempt; reset the attempt counter; start an attempt at once | reconnecting |
+| reconnecting | the network is lost or comes back or changes | see [§6.1](#61-network-changes) | reconnecting |
 | reconnecting | retryable loss in the new session before `connected` (including a new session that cannot be started at all) | schedule next attempt if attempts remain | reconnecting |
 | reconnecting | retryable loss, no attempts left | clear queue; emit `ReconnectionFailed`, then `Disconnected(DisconnectReason.reconnectionFailed)` | failed |
 | reconnecting | terminal close (auth/join/session ended/protocol) | cancel timer; clear queue; emit the matching error event and `Disconnected` | failed |
@@ -205,20 +204,36 @@ States: `idle`, `reconnecting`, `failed`.
 ### 6.1 Network changes
 
 The client watches the kinds of network the device uses (Wi-Fi, cellular, ethernet, VPN, other), as the OS
-reports them. A socket and a peer connection are bound to the network they were opened on, so a change means
+reports them. A socket and a peer connection are bound to the network they were opened on, so losing it means
 the session will not survive; reacting at once avoids waiting for a pong timeout or an ICE failure.
 
 - Watching starts at `connect()` and stops when the client is disconnected. The first value read is the
-  baseline; a report equal to the last one is ignored. **Online** means at least one network is reported;
-  **offline** means none.
-- While joined (status `joined`) with reconnection enabled, every change, to offline included, is a retryable
-  loss. With reconnection disabled, changes are ignored: the session ends only when its socket or peer
-  connection does.
-- Before the first `Joined` of a `connect()` call, changes are ignored (the attempt fails or succeeds on its
-  own).
-- While reconnecting: going offline is recorded, and attempt timers that fire meanwhile wait (§6 table). A
-  change to online (back online, or a different network) abandons the current attempt and starts a new one at
-  once with a fresh attempt budget: the old attempt was opened on a network that is gone.
+  baseline. **Online** means at least one network is reported; **offline** means none.
+- A report is acted on once the reports have been stable for 500 ms (the **settle** time), so the brief
+  "offline" some platforms report while switching networks is not a loss of its own. Each change carries the
+  time its first report arrived (when the change **began**).
+- Kinds of change, comparing the settled set with the previous one:
+  - **lost**: now offline;
+  - **available**: online after being offline;
+  - **changed**: a network went away (Wi-Fi → cellular, a VPN going down), or the same set was reached through
+    offline (another Wi-Fi network looks the same).
+  - Only gaining a network (cellular added next to Wi-Fi, a VPN coming up) and a repeat of the same set are no
+    change: the connection keeps its path.
+
+| Status | Change | Action |
+|---|---|---|
+| joined, reconnection enabled | changed | retryable loss `network changed` (§6), without waiting for the socket or ICE to fail |
+| joined, reconnection enabled | lost | retryable loss `network lost` (§6) |
+| joined, reconnection disabled | any | nothing: the session ends only when its socket or peer connection does |
+| before the first `Joined` of a `connect()` | any | no loss (the attempt fails or succeeds on its own); whether the device is online is remembered |
+| reconnecting | lost | a scheduled attempt is cancelled; no attempt starts while offline, and a loss while offline waits for the network instead of using up an attempt |
+| reconnecting | available or changed | the attempt budget starts over (`maxAttempts` on the new network). An attempt in progress that started after the change began is kept: it already runs on the new network. Otherwise a scheduled attempt is cancelled, an attempt in progress is abandoned (its session torn down silently) and a new attempt starts at once |
+| reconnecting | offline for `offlineTimeout` | as "no attempts left" (§6): `ReconnectionFailed`, then `Disconnected(reconnectionFailed)` |
+
+- A session of a reconnection that reaches `connected` while the device is offline does not complete it: no
+  `Reconnected`; the reconnection waits for the network and starts a new attempt then.
+- One reconnection makes at most `3 × maxAttempts` attempts in total, so a network that keeps changing cannot
+  keep it going forever; when that cap is reached the reconnection fails as when no attempts are left.
 - When the OS cannot be asked, the client assumes it is always online and never reports a change (logged).
 
 ## 7. Media event processing
@@ -640,7 +655,7 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D20 | a failed `replaceTrack` is swallowed; the call succeeds | rolled back, then the call fails with the error (§11.3) | the app learns the media was not replaced |
 | D21 | local track ids of the lost session silently disappear on reconnect | `LocalTrackRemoved` for every old id; restored tracks get `LocalTrackAdded` with new ids (§6) | apps can drop stale ids |
 | D22 | remote peers and tracks of the lost session are kept and re-announced with `peerJoined` / `trackAdded` after reconnecting | `TrackRemoved` and `PeerLeft` / `ComponentRemoved` for all of them before the new `Joined`, whose snapshot is the source of truth (§6) | no stale or duplicate remote state |
-| D23 | a network switch is noticed only when the socket or ICE fails; attempts are used up while the device is offline | a network change is a retryable loss; attempts wait while offline and restart with a fresh budget on a new network (§6.1) | fast recovery on mobile |
+| D23 | a network switch is noticed only when the socket or ICE fails; attempts are used up while the device is offline | losing a network is a retryable loss; attempts wait while offline (at most `offlineTimeout`) and restart with a fresh budget on a new network (§6.1) | fast recovery on mobile; a tunnel does not exhaust the attempts |
 | D24 | ICE `disconnected` only renegotiates, however long it lasts | `disconnected` for 3 s is a retryable loss (§8.4) | do not wait for a late `failed` |
 | D25 | opening the socket has no timeout | 10 s (§2.1) | an attempt on a dead network does not hang |
 

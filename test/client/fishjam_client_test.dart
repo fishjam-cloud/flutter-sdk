@@ -754,6 +754,46 @@ void main() {
       expect(h.transports.created, hasLength(2));
     });
 
+    test('gaining a network next to the current one changes nothing', () async {
+      h = ClientHarness(reconnect: _fast);
+      await h.join();
+      h.network.report({'wifi', 'cellular'});
+      await _wait(40);
+      expect(h.eventsOf<ReconnectionStarted>(), isEmpty);
+      expect(h.transports.created, hasLength(1));
+    });
+
+    test('a brief offline while switching networks is one change', () async {
+      h = ClientHarness(
+        reconnect: slow,
+        networkSettle: const Duration(milliseconds: 50),
+      );
+      await h.join();
+      h.network.report({});
+      await _wait(10);
+      h.network.report({'cellular'});
+      await _wait(100);
+      expect(h.eventsOf<ReconnectionStarted>(), hasLength(1));
+      expect(h.transports.created, hasLength(2));
+    });
+
+    test('offline for offlineTimeout ends the reconnection', () async {
+      h = ClientHarness(
+        reconnect: const ReconnectConfig(
+          offlineTimeout: Duration(milliseconds: 50),
+        ),
+      );
+      await h.join();
+      h.network.report({});
+      await _wait(100);
+      expect(h.eventsOf<ReconnectionFailed>(), hasLength(1));
+      expect(
+        h.eventsOf<Disconnected>().single.reason,
+        DisconnectReason.reconnectionFailed,
+      );
+      expect(h.client.status, ConnectionStatus.disconnected);
+    });
+
     test('a report equal to the start value changes nothing', () async {
       h = ClientHarness(reconnect: _fast);
       await h.join();

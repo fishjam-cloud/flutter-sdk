@@ -9,6 +9,7 @@ final class ReconnectConfig {
     this.initialDelay = const Duration(milliseconds: 500),
     this.delay = const Duration(milliseconds: 500),
     this.addTracksOnReconnect = false,
+    this.offlineTimeout = const Duration(seconds: 60),
   });
 
   /// Reconnection turned off.
@@ -30,6 +31,10 @@ final class ReconnectConfig {
   /// Whether local tracks are published again after reconnecting.
   final bool addTracksOnReconnect;
 
+  /// How long a reconnection waits for the device to get a network before
+  /// it gives up.
+  final Duration offlineTimeout;
+
   bool get isEnabled => maxAttempts > 0;
 
   /// Delay before attempt [attempt] (1-based):
@@ -43,11 +48,17 @@ final class ReconnectConfig {
       other.maxAttempts == maxAttempts &&
       other.initialDelay == initialDelay &&
       other.delay == delay &&
-      other.addTracksOnReconnect == addTracksOnReconnect;
+      other.addTracksOnReconnect == addTracksOnReconnect &&
+      other.offlineTimeout == offlineTimeout;
 
   @override
-  int get hashCode =>
-      Object.hash(maxAttempts, initialDelay, delay, addTracksOnReconnect);
+  int get hashCode => Object.hash(
+    maxAttempts,
+    initialDelay,
+    delay,
+    addTracksOnReconnect,
+    offlineTimeout,
+  );
 }
 
 /// Connection status of the client.

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
+
 import 'package:fishjam_client/src/models/config.dart';
 import 'package:fishjam_client/src/models/errors.dart';
 import 'package:fishjam_client/src/models/events.dart';
@@ -35,9 +37,11 @@ abstract interface class ReconnectHost {
   Future<void> startSession(Object? peerMetadata);
 
   /// Tears the session down and emits `Disconnected(reason)`. Called only
-  /// when the manager gives up on its own: [startSession] threw on the last
-  /// attempt (`ReconnectionFailed` was emitted just before). Later reports
-  /// about the abandoned session must be ignored.
+  /// when the manager gives up on its own (`ReconnectionFailed` was emitted
+  /// just before): [startSession] threw on the last attempt, the device was
+  /// offline for `offlineTimeout`, or the network changed after the total
+  /// attempt cap was reached. Later reports about the abandoned session must
+  /// be ignored.
   void endSession(DisconnectReason reason);
 
   /// Publishes [track]'s media again; the new track gets a new id.
@@ -59,8 +63,9 @@ abstract interface class ReconnectHost {
 /// - The caller reports every loss of the current session — including a new
 ///   session that fails to open — through [onRetryableLoss] or
 ///   [onTerminalClose], and every `connected` through [onSessionJoined].
-/// - The caller reports every network change through [onNetworkChanged];
-///   while joined it also reports the change as a retryable loss.
+/// - The caller reports every network change through [onNetworkLost] or
+///   [onNetworkAvailable]; while joined it also reports a lost or changed
+///   network as a retryable loss.
 /// - The manager emits only `ReconnectionStarted`, `ReconnectionFailed`,
 ///   `Reconnected` and, on the first `connected` of a reconnection,
 ///   `LocalTrackRemoved` for every snapshotted track (restored tracks get
@@ -69,8 +74,8 @@ abstract interface class ReconnectHost {
 ///   `Disconnected(reconnectionFailed)` if [state] is
 ///   [ReconnectState.failed], else `Disconnected(connectionLost)`; after a
 ///   terminal close the caller emits the error event and `Disconnected`.
-///   The one exception is [ReconnectHost.startSession] throwing on the last
-///   attempt, where the manager calls [ReconnectHost.endSession].
+///   The exception is giving up on its own (see [ReconnectHost.endSession]),
+///   where the manager calls [ReconnectHost.endSession].
 /// - With `addTracksOnReconnect`, only tracks with a live media track are
 ///   re-added. Muted tracks (no media track) and ended tracks are
 ///   not; a failed re-add does not stop the others.
@@ -84,13 +89,23 @@ class ReconnectManager {
   ReconnectSnapshot? _snapshot;
   Timer? _timer;
 
-  /// Number of attempts started in the current reconnection.
+  /// Number of attempts started on the current network in the current
+  /// reconnection (the budget of `maxAttempts`).
   int _attempt = 0;
 
+  /// Number of attempts started in the current reconnection on any network:
+  /// a network that keeps changing restarts the budget, so this caps it.
+  int _totalAttempts = 0;
+
+  /// When the attempt in progress started; `null` when none is in progress.
+  DateTime? _attemptStartedAt;
+
+  /// While offline no attempt starts, and a loss waits for the network
+  /// instead of using up the budget.
   bool _online = true;
 
-  /// An attempt came due while offline; it starts when the network is back.
-  bool _waitingForNetwork = false;
+  /// Runs while reconnecting offline; gives up at `offlineTimeout`.
+  Timer? _offlineTimer;
 
   /// Whether `LocalTrackRemoved` was emitted for the snapshot's tracks in
   /// the current reconnection (once, on the first `connected`).
@@ -117,16 +132,23 @@ class ReconnectManager {
         _state = ReconnectState.reconnecting;
         _snapshot = snapshot;
         _attempt = 0;
+        _totalAttempts = 0;
         _removalsReported = false;
         _host
           ..holdQueue()
           ..emit(const ReconnectionStarted());
-        _scheduleNextAttempt();
+        _online ? _scheduleNextAttempt() : _waitForNetwork();
         return true;
       case ReconnectState.reconnecting:
-        if (_timer != null || _waitingForNetwork) return true;
+        if (_timer != null) return true;
         _generation++;
-        if (_attempt < _config.maxAttempts) {
+        _attemptStartedAt = null;
+        if (!_online) {
+          _waitForNetwork();
+          return true;
+        }
+        if (_attempt < _config.maxAttempts &&
+            _totalAttempts < _maxTotalAttempts) {
           _scheduleNextAttempt();
           return true;
         }
@@ -156,6 +178,13 @@ class ReconnectManager {
   /// while restoring, `Reconnected` is not emitted for it.
   Future<void> onSessionJoined() async {
     if (_state != ReconnectState.reconnecting) return;
+    if (!_online) {
+      // The session got through just before the network went away; it will
+      // not survive.
+      _attemptStartedAt = null;
+      _waitForNetwork();
+      return;
+    }
     final generation = _generation;
     final tracks = _snapshot!.tracks;
     if (!_removalsReported) {
@@ -179,36 +208,74 @@ class ReconnectManager {
     _host.emit(const Reconnected());
   }
 
-  /// The device went offline, came back or moved to another network. While
-  /// reconnecting, a change to online abandons the current attempt (it was
-  /// opened on a network that is gone) and starts one at once with a fresh
-  /// budget; attempts that come due while offline wait, uncounted.
-  void onNetworkChanged({required bool online}) {
-    _online = online;
-    if (!online || _state != ReconnectState.reconnecting) return;
+  /// The device has no network. While reconnecting, a scheduled attempt is
+  /// cancelled and the reconnection waits, at most `offlineTimeout`, for
+  /// [onNetworkAvailable]. Outside a reconnection it is only remembered.
+  void onNetworkLost() {
+    _online = false;
+    if (_state != ReconnectState.reconnecting) return;
     _cancelTimer();
-    _waitingForNetwork = false;
+    _waitForNetwork();
+  }
+
+  /// The device has a network again, or a different one; the change began
+  /// at [since]. While reconnecting, the attempt budget starts over (earlier
+  /// attempts failed on a network that is gone) and an attempt starts at
+  /// once, unless one that started after [since] is in progress: that one
+  /// already runs on the new network.
+  void onNetworkAvailable({required DateTime since}) {
+    _online = true;
+    _cancelOfflineTimer();
+    if (_state != ReconnectState.reconnecting) return;
+    _attempt = 0;
+    final startedAt = _attemptStartedAt;
+    if (startedAt != null && startedAt.isAfter(since)) return;
+    if (_totalAttempts >= _maxTotalAttempts) {
+      // An attempt still in progress decides; with none, nothing would.
+      if (startedAt == null && _timer == null) _giveUp();
+      return;
+    }
+    _cancelTimer();
     _startAttempt(1);
   }
 
   /// Cancels everything and returns to [ReconnectState.idle] (on `leave()`
-  /// and on a new `connect()`); clears the queue.
-  void reset() => _finish(ReconnectState.idle);
+  /// and on a new `connect()`); clears the queue and forgets that the device
+  /// was offline.
+  void reset() {
+    _finish(ReconnectState.idle);
+    _online = true;
+  }
+
+  int get _maxTotalAttempts => 3 * _config.maxAttempts;
+
+  void _waitForNetwork() {
+    _offlineTimer ??= Timer(_config.offlineTimeout, () {
+      _offlineTimer = null;
+      _giveUp();
+    });
+  }
+
+  void _giveUp() {
+    _finish(ReconnectState.failed);
+    _host
+      ..emit(const ReconnectionFailed())
+      ..endSession(DisconnectReason.reconnectionFailed);
+  }
 
   void _scheduleNextAttempt() {
     final attempt = _attempt + 1;
     _timer = Timer(_config.delayBeforeAttempt(attempt), () {
       _timer = null;
-      if (_online) {
-        _startAttempt(attempt);
-      } else {
-        _waitingForNetwork = true;
-      }
+      _startAttempt(attempt);
     });
   }
 
+  /// Starts [attempt], superseding any attempt still in progress.
   void _startAttempt(int attempt) {
     _attempt = attempt;
+    _totalAttempts++;
+    _attemptStartedAt = clock.now();
     final generation = ++_generation;
     unawaited(
       _host
@@ -235,11 +302,13 @@ class ReconnectManager {
   /// restores, and releases (success) or clears (otherwise) the queue.
   void _finish(ReconnectState state, {bool release = false}) {
     _cancelTimer();
+    _cancelOfflineTimer();
     _generation++;
     _state = state;
     _snapshot = null;
     _attempt = 0;
-    _waitingForNetwork = false;
+    _totalAttempts = 0;
+    _attemptStartedAt = null;
     if (release) {
       _host.releaseQueue();
     } else {
@@ -250,5 +319,10 @@ class ReconnectManager {
   void _cancelTimer() {
     _timer?.cancel();
     _timer = null;
+  }
+
+  void _cancelOfflineTimer() {
+    _offlineTimer?.cancel();
+    _offlineTimer = null;
   }
 }
