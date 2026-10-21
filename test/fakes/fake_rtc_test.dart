@@ -13,6 +13,30 @@ void main() {
   });
 
   group('transceivers', () {
+    test('model flutter_webrtc on Android: a lookup by mid disposes the '
+        'handles of transceivers without a mid', () async {
+      final pc = FakePeerConnection(const RtcConfiguration());
+      await pc.addTransceiverOfKind(
+        MediaKind.audio,
+        const TransceiverInit(direction: TransceiverDirection.recvonly),
+      );
+      await pc.setLocalDescription(
+        const SessionDescription(type: SdpType.offer, sdp: 'v=0'),
+      );
+      await pc.addTransceiverOfKind(
+        MediaKind.video,
+        const TransceiverInit(direction: TransceiverDirection.recvonly),
+      );
+      final [negotiated, fresh] = await pc.getTransceivers();
+      expect(negotiated.mid, isNotNull);
+      expect(fresh.mid, isNull);
+
+      await fresh.getDirection();
+      await negotiated.getDirection();
+      await expectLater(fresh.getDirection(), throwsStateError);
+      await expectLater(fresh.stop(), throwsStateError);
+    });
+
     test(
       'mids are assigned by setLocalDescription and views are snapshots',
       () async {

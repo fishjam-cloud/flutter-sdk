@@ -315,11 +315,15 @@ Rules:
 ## 9. Receive transceiver sync
 
 On every `offerData{tracksTypes{audio, video}}`, the client makes the number of **live receive transceivers**
-per kind equal the server's numbers. A transceiver is a live receive transceiver when its direction is
-`recvonly` and its current direction is not `stopped`; its kind is its receiver track kind.
+per kind equal the server's numbers. The live receive transceivers are the `recvonly` transceivers this
+session added and has not stopped (the client always makes the offer, so it created every transceiver),
+identified by their receiver track id. The SDK does not ask transceivers for their direction: on Android
+`flutter_webrtc` disposes the handles of transceivers without a mid whenever it looks up a negotiated one, and
+on iOS transceivers without a mid share one id.
 
 1. Count live receive transceivers per kind.
-2. If there are more than requested, stop the excess, choosing transceivers with no `mid` first.
+2. If there are more than requested, stop the excess, choosing transceivers with no `mid` first. All
+   transceivers without a mid are stopped before any with a mid, from one `getTransceivers` snapshot.
 3. If there are fewer, add `recvonly` transceivers: first all missing **video**, then all missing **audio**.
 4. Negative deltas never throw.
 
