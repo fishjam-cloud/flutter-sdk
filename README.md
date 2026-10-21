@@ -112,6 +112,71 @@ A lost connection is re-established automatically (`ReconnectConfig`):
 
 Livestreams without a room use `publishLivestream` (WHIP) and `receiveLivestream` (WHEP).
 
+## Background calls
+
+By default the OS suspends the app shortly after it goes to the background, which cuts the call's audio.
+Start these after joining and stop them after leaving:
+
+```dart
+// Android: a foreground service with an ongoing-call notification. No-op on iOS.
+await ForegroundService.instance.start(const ForegroundServiceConfig(
+  enableMicrophone: true,
+  enableCamera: true,
+  notificationTitle: 'Your call is ongoing',
+  notificationContent: 'Tap to return to the call.',
+));
+
+// iOS: shows the call in the system call UI (CallKit). No-op on Android.
+await CallKit.instance.startSession(const CallKitConfig(displayName: 'Ann', isVideo: true));
+CallKit.instance.actions.listen((action) {
+  switch (action) {
+    case CallKitEnded(): // the user ended the call from the system UI
+    case CallKitMuted(:final isMuted): // apply to the microphone track
+    default:
+  }
+});
+
+// After leaving:
+await ForegroundService.instance.stop();
+await CallKit.instance.endSession();
+```
+
+Start the foreground service after `getUserMedia`: the camera and microphone service types apply only once
+those permissions are granted. On Android 13+ the first `start` asks for the notifications permission.
+
+The SDK's plugin declares nothing in your app, so add the entries yourself.
+
+**Android** `AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+<application ...>
+    <service
+        android:name="io.fishjam.client.foregroundservice.FishjamForegroundService"
+        android:foregroundServiceType="camera|microphone"
+        android:exported="false"
+        android:stopWithTask="true" />
+</application>
+```
+
+For screen sharing, also add `FOREGROUND_SERVICE_MEDIA_PROJECTION`, add `mediaProjection` to
+`foregroundServiceType`, and use this order: `Helper.requestCapturePermission()`, then
+`ForegroundService.instance.start(... enableScreenSharing: true)`, then `getDisplayMedia`.
+
+**iOS** `Info.plist`:
+
+```xml
+<key>UIBackgroundModes</key>
+<array>
+    <string>audio</string>
+    <string>voip</string>
+</array>
+```
+
 For prototyping without a backend, the Fishjam dashboard offers a Sandbox API that returns peer tokens. It is
 unauthenticated: never use it in production. The [example app](example/) shows both flows.
 

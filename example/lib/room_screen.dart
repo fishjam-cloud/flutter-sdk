@@ -59,6 +59,7 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _microphoneOn = true;
   String _status = 'Connecting…';
   final _audioOutput = AudioOutputManager.instance;
+  final _callKit = CallKit.instance;
   AudioOutputChangedInfo _audio = const AudioOutputChangedInfo(
     currentAudioOutput: null,
     availableAudioOutputs: [],
@@ -72,8 +73,21 @@ class _RoomScreenState extends State<RoomScreen> {
         (info) => setState(() => _audio = info),
       ),
     );
+    _subscriptions.add(_callKit.actions.listen(_onCallKitAction));
     unawaited(_refreshAudioOutputs());
     unawaited(_start());
+  }
+
+  /// The system call UI can end the call or mute the microphone.
+  void _onCallKitAction(CallKitAction action) {
+    switch (action) {
+      case CallKitEnded():
+        unawaited(_leave());
+      case CallKitMuted(:final isMuted) when isMuted == _microphoneOn:
+        unawaited(_toggleMicrophone());
+      default:
+        break;
+    }
   }
 
   Future<void> _refreshAudioOutputs() async {
@@ -186,6 +200,21 @@ class _RoomScreenState extends State<RoomScreen> {
       _microphone = stream.getAudioTracks().firstOrNull;
       _localRenderer.srcObject = stream;
       if (mounted) setState(() {});
+
+      // Keeps the call running in the background. The service types follow
+      // the permissions granted by getUserMedia above.
+      await ForegroundService.instance.start(
+        const ForegroundServiceConfig(
+          enableCamera: true,
+          enableMicrophone: true,
+          channelName: 'Fishjam Notifications',
+          notificationTitle: 'Your video call is ongoing',
+          notificationContent: 'Tap to return to the call.',
+        ),
+      );
+      await _callKit.startSession(
+        CallKitConfig(displayName: widget.displayName, isVideo: true),
+      );
 
       await _client.connect(
         url: widget.credentials.url,
@@ -377,6 +406,8 @@ class _RoomScreenState extends State<RoomScreen> {
     }
     unawaited(_localRenderer.dispose());
     unawaited(_client.dispose());
+    unawaited(ForegroundService.instance.stop());
+    unawaited(_callKit.endSession());
     final stream = _localStream;
     if (stream != null) {
       for (final track in stream.getTracks()) {
