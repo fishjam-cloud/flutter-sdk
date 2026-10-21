@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fishjam_client/src/connectivity_network_monitor.dart';
 import 'package:fishjam_client/src/data/data_channels.dart';
 import 'package:fishjam_client/src/engine/rtc_engine.dart';
 import 'package:fishjam_client/src/logger.dart';
@@ -15,6 +16,7 @@ import 'package:fishjam_client/src/rtc/flutter_webrtc_adapter.dart';
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 import 'package:fishjam_client/src/signaling/auth.dart';
 import 'package:fishjam_client/src/signaling/message_queue.dart';
+import 'package:fishjam_client/src/signaling/network_monitor.dart';
 import 'package:fishjam_client/src/signaling/reconnect.dart';
 import 'package:fishjam_client/src/signaling/signaling_session.dart';
 import 'package:fishjam_client/src/signaling/transport.dart';
@@ -51,19 +53,32 @@ class FishjamClient {
   FishjamClient({
     bool debug = false,
     ReconnectConfig reconnect = const ReconnectConfig(),
-  }) : this.internal(debug: debug, reconnect: reconnect);
+  }) : this.internal(
+         debug: debug,
+         reconnect: reconnect,
+         networkMonitor: ConnectivityNetworkMonitor(),
+       );
 
-  /// A client on a custom WebRTC adapter and socket transport (tests only;
-  /// they default to `flutter_webrtc` and `dart:io` WebSockets).
+  /// A client on a custom WebRTC adapter, socket transport and network
+  /// monitor (tests only; they default to `flutter_webrtc`, `dart:io`
+  /// WebSockets and no network watching).
   @internal
   FishjamClient.internal({
     this.debug = false,
     this.reconnect = const ReconnectConfig(),
     RtcAdapter? rtcAdapter,
     this._transportFactory,
+    NetworkMonitor? networkMonitor,
   }) : _adapter = rtcAdapter ?? const FlutterWebrtcAdapter(),
        _logger = FishjamLogger(enabled: debug) {
     _reconnect = ReconnectManager(config: reconnect, host: _Host(this));
+    if (networkMonitor != null) {
+      _network = NetworkWatcher(
+        monitor: networkMonitor,
+        logger: _logger,
+        onChanged: _onNetworkChanged,
+      );
+    }
     _dataChannels = DataChannelManager(
       logger: _logger,
       negotiate: (apply) => _requireAvailable().engine.negotiate(apply),
@@ -93,6 +108,7 @@ class FishjamClient {
   late final ReconnectManager _reconnect;
   late final DataChannelManager _dataChannels;
   late final StatsReporter _stats;
+  NetworkWatcher? _network;
 
   ConnectionStatus _status = ConnectionStatus.idle;
 
@@ -141,6 +157,7 @@ class FishjamClient {
     _reconnect.reset();
     _staleRemote = null;
     _status = ConnectionStatus.connecting;
+    unawaited(_network?.start());
     final connecting = _connecting = Completer<void>();
     final session = _newSession();
     try {
@@ -415,6 +432,19 @@ class FishjamClient {
     });
   }
 
+  /// A network change while joined is a loss: the socket and the peer
+  /// connection are bound to the network that went away.
+  void _onNetworkChanged({required bool online}) {
+    _logger.debug('Network changed (online: $online)');
+    if (!reconnect.isEnabled) return;
+    if (_status == ConnectionStatus.joined) {
+      unawaited(
+        _onRetryableLoss(const RetryableClose(reason: 'network changed')),
+      );
+    }
+    _reconnect.onNetworkChanged(online: online);
+  }
+
   Future<void> _onRetryableLoss(RetryableClose reason) async {
     final session = _session!;
     final snapshot = ReconnectSnapshot(
@@ -458,6 +488,7 @@ class FishjamClient {
     _session = null;
     _staleRemote = null;
     _status = ConnectionStatus.disconnected;
+    unawaited(_network?.stop());
     await _teardown(session, sendDisconnect: sendDisconnect);
     if (error != null) _emit(error);
     _emit(disconnected);
@@ -473,16 +504,23 @@ class FishjamClient {
   }
 
   /// In this order: data channels, `disconnect` (when leaving), peer
-  /// connection and local streams, socket.
+  /// connection and local streams, socket. Without [waitForSocket] the
+  /// socket close is started but not awaited.
   Future<void> _teardown(
     _Session session, {
     required bool sendDisconnect,
+    bool waitForSocket = true,
   }) async {
     _stats.stop();
     await _dataChannels.close();
     if (sendDisconnect) session.engine.sendDisconnect();
     await session.engine.close();
-    await session.signaling.close();
+    final closing = session.signaling.close();
+    if (waitForSocket) {
+      await closing;
+    } else {
+      unawaited(closing);
+    }
     if (identical(_socket, session.signaling)) _socket = null;
   }
 
@@ -597,7 +635,10 @@ class _Host implements ReconnectHost {
           }
         }
       }
-      await _client._teardown(old, sendDisconnect: false);
+      // A socket on a network that went away can take seconds to close
+      // (the close handshake never completes); the new session does not
+      // need it gone.
+      await _client._teardown(old, sendDisconnect: false, waitForSocket: false);
     }
     if (!identical(_client._session, session)) return;
     try {

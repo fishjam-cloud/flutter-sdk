@@ -535,4 +535,119 @@ void main() {
       expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
     });
   });
+
+  group('network changes (SPEC §6.1)', () {
+    test('an attempt that comes due while offline waits, uncounted, and '
+        'starts as soon as the network is back', () {
+      fakeAsync((async) {
+        final m = manager()
+          ..onRetryableLoss(_loss, snapshot())
+          ..onNetworkChanged(online: false);
+        async.elapse(const Duration(seconds: 30));
+        expect(host.count('startSession'), 0);
+        expect(m.isReconnecting, isTrue);
+
+        m.onNetworkChanged(online: true);
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 1);
+
+        // The wait used none of the 3 attempts.
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(milliseconds: 800));
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(milliseconds: 1100));
+        expect(host.count('startSession'), 3);
+        expect(m.onRetryableLoss(_loss, snapshot()), isFalse);
+      });
+    });
+
+    test('a new network abandons the scheduled attempt and starts one at '
+        'once, with a fresh budget', () {
+      fakeAsync((async) {
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        m.onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 800));
+        m.onRetryableLoss(_loss, snapshot());
+        expect(host.count('startSession'), 2);
+
+        m.onNetworkChanged(online: true);
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 3);
+
+        // The scheduled attempt 3 does not run on top.
+        async.elapse(const Duration(seconds: 5));
+        expect(host.count('startSession'), 3);
+
+        // 2 more attempts follow the immediate one.
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(milliseconds: 800));
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(milliseconds: 1100));
+        expect(host.count('startSession'), 5);
+        expect(m.onRetryableLoss(_loss, snapshot()), isFalse);
+      });
+    });
+
+    test('a new network abandons a running attempt; its late start error '
+        'is ignored', () {
+      fakeAsync((async) {
+        final gate = host.startGate = Completer<void>();
+        host.failingStarts = 1;
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        expect(host.count('startSession'), 1);
+
+        m.onNetworkChanged(online: true);
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 2);
+
+        // The abandoned attempt throws; nothing new is scheduled.
+        gate.complete();
+        async.elapse(const Duration(seconds: 5));
+        expect(host.count('startSession'), 2);
+        expect(m.isReconnecting, isTrue);
+      });
+    });
+
+    test('a network change during track restoration starts a new attempt '
+        'and cancels Reconnected', () {
+      fakeAsync((async) {
+        final pending = host.pendingRestores['t1'] = Completer<void>();
+        final m = manager(const ReconnectConfig(addTracksOnReconnect: true))
+          ..onRetryableLoss(
+            _loss,
+            snapshot(tracks: [_track('t1', media: FakeMediaTrack.video())]),
+          );
+        async.elapse(const Duration(milliseconds: 500));
+        unawaited(m.onSessionJoined());
+        async.flushMicrotasks();
+
+        m.onNetworkChanged(online: true);
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 2);
+
+        pending.complete();
+        async.flushMicrotasks();
+        expect(host.events.whereType<Reconnected>(), isEmpty);
+      });
+    });
+
+    test('changes outside a reconnection start nothing', () {
+      fakeAsync((async) {
+        final m = manager()
+          ..onNetworkChanged(online: false)
+          ..onNetworkChanged(online: true);
+        async.elapse(const Duration(seconds: 5));
+        expect(host.calls, isEmpty);
+
+        m
+          ..onRetryableLoss(_loss, snapshot())
+          ..reset()
+          ..onNetworkChanged(online: true);
+        async.elapse(const Duration(seconds: 5));
+        expect(host.count('startSession'), 0);
+      });
+    });
+  });
 }

@@ -77,12 +77,16 @@ typedef SignalingTransportFactory = SignalingTransport Function();
 final class WebSocketTransport implements SignalingTransport {
   /// Ignored text frames are logged at debug level with [logger].
   WebSocketTransport({
-    this.pingInterval = const Duration(seconds: 15),
+    this.pingInterval = const Duration(seconds: 5),
+    this.connectTimeout = const Duration(seconds: 10),
     FishjamLogger? logger,
   }) : _logger = logger ?? FishjamLogger.disabled();
 
   /// Interval between client pings, and the pong timeout.
   final Duration pingInterval;
+
+  /// Limit for opening the socket: connection, TLS and upgrade together.
+  final Duration connectTimeout;
 
   final FishjamLogger _logger;
 
@@ -102,10 +106,18 @@ final class WebSocketTransport implements SignalingTransport {
   @override
   Future<void> connect(Uri url) async {
     if (_socket != null) throw StateError('A transport can be used once');
+    // Without a limit, a connect started on a network that went away hangs
+    // until the OS gives up, which can take minutes.
+    final client = HttpClient()..connectionTimeout = connectTimeout;
+    final connecting = WebSocket.connect(url.toString(), customClient: client);
     try {
-      _socket = await WebSocket.connect(url.toString())
+      _socket = await connecting.timeout(connectTimeout)
         ..pingInterval = pingInterval;
     } on Object catch (e) {
+      if (e is TimeoutException) {
+        client.close(force: true);
+        connecting.ignore();
+      }
       _finish(TransportClosed(error: e));
       throw TransportException('Cannot connect to $url', e);
     }

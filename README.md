@@ -101,6 +101,8 @@ await client.dispose();
 
 A lost connection is re-established automatically (`ReconnectConfig`):
 
+- A change of network (Wi-Fi to cellular, a different Wi-Fi, going offline) starts reconnecting at once instead
+  of waiting for the old connection to time out; while the device is offline, attempts wait for a network.
 - From `ReconnectionStarted` until `Reconnected` the status is `reconnecting` and calls that need the
   session (track operations, metadata updates, `createDataChannels()`) fail at once with `StateError`.
 - Before the new `Joined`, the remote tracks and peers you knew are reported with `TrackRemoved` and

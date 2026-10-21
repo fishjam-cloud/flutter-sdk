@@ -31,6 +31,7 @@ class EngineHarness {
     FakeRtcAdapter? rtc,
     RemoteStoreFactory remoteStore = RemoteStore.new,
     Duration nativeCallTimeout = const Duration(seconds: 10),
+    Duration iceDisconnectedTimeout = const Duration(seconds: 3),
   }) : logger = logger ?? FishjamLogger.disabled(),
        rtc = rtc ?? FakeRtcAdapter() {
     localTracks = LocalTrackRegistry(
@@ -46,6 +47,7 @@ class EngineHarness {
     engine = RtcEngine(
       adapter: this.rtc,
       nativeCallTimeout: nativeCallTimeout,
+      iceDisconnectedTimeout: iceDisconnectedTimeout,
       logger: this.logger,
       sendMediaEvent: sent.add,
       emit: events.add,

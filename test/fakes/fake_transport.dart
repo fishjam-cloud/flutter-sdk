@@ -61,6 +61,10 @@ class FakeTransport implements SignalingTransport {
   /// Whether the client called [close].
   bool closedByClient = false;
 
+  /// When set, [close] waits for it before closing, like a socket whose
+  /// close handshake cannot reach the server.
+  Completer<void>? closeGate;
+
   /// Code passed to [close].
   int? clientCloseCode;
 
@@ -108,6 +112,8 @@ class FakeTransport implements SignalingTransport {
     closedByClient = true;
     clientCloseCode = code;
     clientCloseReason = reason;
+    final gate = closeGate;
+    if (gate != null) await gate.future;
     _finish(TransportClosed(code: code, reason: reason));
   }
 

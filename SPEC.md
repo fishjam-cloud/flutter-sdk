@@ -36,8 +36,10 @@ Conventions:
   else becomes `https://fishjam.io/api/v1/connect/<id>`.
 - Every frame in both directions is **binary** and contains exactly one `fishjam.PeerMessage`.
 - Text frames from the server are ignored (logged at debug level).
-- The server pings every 30 s. The client additionally sends its own pings (interval 15 s) and treats a
+- The server pings every 30 s. The client additionally sends its own pings (interval 5 s) and treats a
   missing pong within one interval as a connection loss (retryable, [§6](#6-reconnection)).
+- Opening the socket (connection, TLS and upgrade) times out after 10 s; a timeout fails like a socket that
+  cannot be opened.
 
 ### 2.2 Messages
 
@@ -175,8 +177,10 @@ States: `idle`, `reconnecting`, `failed`.
 
 | From | Trigger | Action | To |
 |---|---|---|---|
-| idle (joined) | retryable loss: retryable close, socket error, pong timeout, peer connection `failed`, ICE `failed` | snapshot local peer metadata (`peer` part) and local tracks; emit `ReconnectionStarted`; schedule attempt 1 | reconnecting |
-| reconnecting | attempt timer fires | tear down old session silently (no `Disconnected`); start a new session with the snapshot metadata | reconnecting |
+| idle (joined) | retryable loss: retryable close, socket error, pong timeout, peer connection `failed`, ICE `failed`, ICE `disconnected` for 3 s ([§8.4](#84-peer-connection)), network change ([§6.1](#61-network-changes)) | snapshot local peer metadata (`peer` part) and local tracks; emit `ReconnectionStarted`; schedule attempt 1 | reconnecting |
+| reconnecting | attempt timer fires while online | tear down old session silently (no `Disconnected`) without waiting for its socket to finish closing; start a new session with the snapshot metadata | reconnecting |
+| reconnecting | attempt timer fires while offline ([§6.1](#61-network-changes)) | nothing; the attempt waits for the network and is not counted | reconnecting |
+| reconnecting | the network comes back or changes ([§6.1](#61-network-changes)) | abandon the waiting, scheduled or running attempt; reset the attempt counter; start an attempt at once | reconnecting |
 | reconnecting | retryable loss in the new session before `connected` (including a new session that cannot be started at all) | schedule next attempt if attempts remain | reconnecting |
 | reconnecting | retryable loss, no attempts left | clear queue; emit `ReconnectionFailed`, then `Disconnected(DisconnectReason.reconnectionFailed)` | failed |
 | reconnecting | terminal close (auth/join/session ended/protocol) | cancel timer; clear queue; emit the matching error event and `Disconnected` | failed |
@@ -197,6 +201,25 @@ States: `idle`, `reconnecting`, `failed`.
   removed when the next attempt starts.
 - A **muted** track (no media track) is not re-added: there is nothing to publish. The app adds the track
   again when it unmutes.
+
+### 6.1 Network changes
+
+The client watches the kinds of network the device uses (Wi-Fi, cellular, ethernet, VPN, other), as the OS
+reports them. A socket and a peer connection are bound to the network they were opened on, so a change means
+the session will not survive; reacting at once avoids waiting for a pong timeout or an ICE failure.
+
+- Watching starts at `connect()` and stops when the client is disconnected. The first value read is the
+  baseline; a report equal to the last one is ignored. **Online** means at least one network is reported;
+  **offline** means none.
+- While joined (status `joined`) with reconnection enabled, every change, to offline included, is a retryable
+  loss. With reconnection disabled, changes are ignored: the session ends only when its socket or peer
+  connection does.
+- Before the first `Joined` of a `connect()` call, changes are ignored (the attempt fails or succeeds on its
+  own).
+- While reconnecting: going offline is recorded, and attempt timers that fire meanwhile wait (§6 table). A
+  change to online (back online, or a different network) abandons the current attempt and starts a new one at
+  once with a fresh attempt budget: the old attempt was opened on a network that is gone.
+- When the OS cannot be asked, the client assumes it is always online and never reports a change (logged).
 
 ## 7. Media event processing
 
@@ -284,7 +307,9 @@ Rules:
   candidate (end of gathering) is not sent. Remote candidates are added with `addIceCandidate`; failures are
   logged.
 - Connection state `failed` or ICE connection state `failed` emits `ConnectionError(message)` and is a
-  retryable loss ([§6](#6-reconnection)).
+  retryable loss ([§6](#6-reconnection)). So does ICE connection state `disconnected` that has not turned
+  `connected` or `completed` within 3 s: the OS takes much longer to report `failed`, while a short
+  `disconnected` recovers on its own.
 - A new session always creates a new peer connection; the old one is closed.
 
 ## 9. Receive transceiver sync
@@ -611,6 +636,9 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D20 | a failed `replaceTrack` is swallowed; the call succeeds | rolled back, then the call fails with the error (§11.3) | the app learns the media was not replaced |
 | D21 | local track ids of the lost session silently disappear on reconnect | `LocalTrackRemoved` for every old id; restored tracks get `LocalTrackAdded` with new ids (§6) | apps can drop stale ids |
 | D22 | remote peers and tracks of the lost session are kept and re-announced with `peerJoined` / `trackAdded` after reconnecting | `TrackRemoved` and `PeerLeft` / `ComponentRemoved` for all of them before the new `Joined`, whose snapshot is the source of truth (§6) | no stale or duplicate remote state |
+| D23 | a network switch is noticed only when the socket or ICE fails; attempts are used up while the device is offline | a network change is a retryable loss; attempts wait while offline and restart with a fresh budget on a new network (§6.1) | fast recovery on mobile |
+| D24 | ICE `disconnected` only renegotiates, however long it lasts | `disconnected` for 3 s is a retryable loss (§8.4) | do not wait for a late `failed` |
+| D25 | opening the socket has no timeout | 10 s (§2.1) | an attempt on a dead network does not hang |
 
 ## 23. Golden fixtures
 

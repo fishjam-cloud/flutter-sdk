@@ -105,6 +105,40 @@ void main() {
     expect((await transport.onClose).error, isNotNull);
   });
 
+  test('pings every 5 s and gives up opening a socket after 10 s', () {
+    final transport = WebSocketTransport();
+
+    expect(transport.pingInterval, const Duration(seconds: 5));
+    expect(transport.connectTimeout, const Duration(seconds: 10));
+  });
+
+  test(
+    'a server that never answers the upgrade times the connect out',
+    () async {
+      // Accepts the TCP connection and stays silent, like a peer on a network
+      // that went away mid-handshake.
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final accepted = <Socket>[];
+      server.listen(accepted.add);
+      addTearDown(() async {
+        for (final socket in accepted) {
+          socket.destroy();
+        }
+        await server.close();
+      });
+      final transport = WebSocketTransport(
+        connectTimeout: const Duration(milliseconds: 200),
+      );
+
+      await expectLater(
+        transport.connect(Uri.parse('ws://127.0.0.1:${server.port}/socket')),
+        throwsA(isA<TransportException>()),
+      );
+      expect((await transport.onClose).error, isA<TimeoutException>());
+      expect(transport.isOpen, isFalse);
+    },
+  );
+
   test('a transport is single use', () async {
     final (server, url) = await _serve((socket) => socket.listen(null));
     addTearDown(server.close);

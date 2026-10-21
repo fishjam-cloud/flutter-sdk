@@ -420,6 +420,55 @@ void main() {
       expect(logs, contains(startsWith('warn')));
     });
 
+    group('ICE disconnected that lasts (SPEC §8.4)', () {
+      const timeout = Duration(milliseconds: 20);
+
+      Future<EngineHarness> disconnected() async {
+        final h = EngineHarness(iceDisconnectedTimeout: timeout);
+        await h.join();
+        await h.offerData();
+        await h.answer();
+        h.pc.setIceConnectionState(IceConnectionState.disconnected);
+        await settle();
+        return h;
+      }
+
+      Future<void> outlast() async {
+        await Future<void>.delayed(timeout * 2);
+        await settle();
+      }
+
+      test(
+        'is one ConnectionError, reported as a connection failure',
+        () async {
+          final h = await disconnected();
+          await outlast();
+          expect(h.events.whereType<ConnectionError>(), hasLength(1));
+          expect(h.connectionFailures, hasLength(1));
+        },
+      );
+
+      for (final recovered in [
+        IceConnectionState.connected,
+        IceConnectionState.completed,
+      ]) {
+        test('is nothing when ICE turns ${recovered.name} in time', () async {
+          final h = await disconnected();
+          h.pc.setIceConnectionState(recovered);
+          await outlast();
+          expect(h.events.whereType<ConnectionError>(), isEmpty);
+          expect(h.connectionFailures, isEmpty);
+        });
+      }
+
+      test('is nothing once the engine was closed', () async {
+        final h = await disconnected();
+        await h.engine.close();
+        await outlast();
+        expect(h.events.whereType<ConnectionError>(), isEmpty);
+      });
+    });
+
     test('ICE or peer connection failure emits one ConnectionError and '
         'reports it', () async {
       final (h, _) = await _joined();

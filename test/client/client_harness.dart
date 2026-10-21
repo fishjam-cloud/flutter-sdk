@@ -11,6 +11,7 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/server/server.pb.d
     as server;
 import 'package:fishjam_client/src/proto/fishjam/peer_notifications.pb.dart';
 
+import '../fakes/fake_network.dart';
 import '../fakes/fake_rtc.dart';
 import '../fakes/fake_transport.dart';
 import '../public/native_fakes.dart';
@@ -28,12 +29,16 @@ class ClientHarness {
       reconnect: reconnect,
       rtcAdapter: rtc,
       transportFactory: transports.call,
+      networkMonitor: network,
     );
     _subscription = client.events.listen(events.add);
   }
 
   /// Transports created by the client.
   final transports = FakeTransportFactory();
+
+  /// The device's networks, as the OS reports them.
+  final network = FakeNetworkMonitor();
 
   /// The WebRTC fake.
   final FakeRtcAdapter rtc;

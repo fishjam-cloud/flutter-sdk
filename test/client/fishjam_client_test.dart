@@ -710,6 +710,91 @@ void main() {
     });
   });
 
+  group('network changes (SPEC §6.1)', () {
+    const slow = ReconnectConfig(
+      initialDelay: Duration(seconds: 5),
+      delay: Duration(seconds: 5),
+    );
+
+    test('a change while joined replaces the session at once', () async {
+      h = ClientHarness(reconnect: slow);
+      await h.join();
+      final first = h.transport;
+      h.network.report({'cellular'});
+      await settle();
+      expect(h.eventsOf<ReconnectionStarted>(), hasLength(1));
+      expect(h.transports.created, hasLength(2));
+      expect(first.closedByClient, isTrue);
+      await h.authenticate();
+      await h.connectedEvent();
+      expect(h.eventsOf<Reconnected>(), hasLength(1));
+      expect(h.eventsOf<Disconnected>(), isEmpty);
+    });
+
+    test('the new session does not wait for the old socket to close', () async {
+      h = ClientHarness(reconnect: slow);
+      await h.join();
+      h.transport.closeGate = Completer<void>();
+      h.network.report({'cellular'});
+      await settle();
+      expect(h.transports.created, hasLength(2));
+      expect(h.transport.sentMessages.single.hasAuthRequest(), isTrue);
+    });
+
+    test('offline: the attempt waits for the network, then starts at '
+        'once', () async {
+      h = ClientHarness(reconnect: _fast);
+      await h.join();
+      h.network.report({});
+      await _wait(100);
+      expect(h.eventsOf<ReconnectionStarted>(), hasLength(1));
+      expect(h.transports.created, hasLength(1));
+      h.network.report({'cellular'});
+      await settle();
+      expect(h.transports.created, hasLength(2));
+    });
+
+    test('a report equal to the start value changes nothing', () async {
+      h = ClientHarness(reconnect: _fast);
+      await h.join();
+      h.network.report({'wifi'});
+      await _wait(40);
+      expect(h.eventsOf<ReconnectionStarted>(), isEmpty);
+    });
+
+    test('a change before Joined is ignored', () async {
+      h = ClientHarness(reconnect: _fast);
+      final connected = h.client.connect(url: 'ws://fishjam.test', token: 't');
+      await settle();
+      h.network.report({'cellular'});
+      await settle();
+      await h.authenticate();
+      await h.connectedEvent();
+      await connected;
+      await _wait(40);
+      expect(h.eventsOf<ReconnectionStarted>(), isEmpty);
+      expect(h.transports.created, hasLength(1));
+    });
+
+    test('with reconnection disabled, a change is ignored', () async {
+      h = ClientHarness(reconnect: ReconnectConfig.disabled);
+      await h.join();
+      h.network.report({'cellular'});
+      await _wait(40);
+      expect(h.client.status, ConnectionStatus.joined);
+      expect(h.eventsOf<Disconnected>(), isEmpty);
+    });
+
+    test('watching starts with connect() and stops on leave', () async {
+      h = ClientHarness();
+      expect(h.network.isWatched, isFalse);
+      await h.join();
+      expect(h.network.isWatched, isTrue);
+      await h.client.leave();
+      expect(h.network.isWatched, isFalse);
+    });
+  });
+
   group('statistics (SPEC §17)', () {
     test('reports every 10 s while joined and stops on teardown', () {
       fakeAsync((async) {
