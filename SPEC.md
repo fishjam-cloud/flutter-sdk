@@ -170,7 +170,7 @@ All client → server messages go through a single ordered queue in front of the
 ## 6. Reconnection
 
 Configuration (`ReconnectConfig`): `maxAttempts` (default 3), `initialDelay` (default 500 ms), `delay`
-(default 500 ms), `addTracksOnReconnect` (default false), `offlineTimeout` (default 60 s, [§6.1](#61-network-changes)).
+(default 500 ms), `addTracksOnReconnect` (default true, D26), `offlineTimeout` (default 60 s, [§6.1](#61-network-changes)).
 `ReconnectConfig.disabled` turns it off. Reconnect is enabled with defaults unless configured otherwise.
 
 States: `idle`, `reconnecting`, `failed`.
@@ -658,6 +658,7 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D23 | a network switch is noticed only when the socket or ICE fails; attempts are used up while the device is offline | losing a network is a retryable loss; attempts wait while offline (at most `offlineTimeout`) and restart with a fresh budget on a new network (§6.1) | fast recovery on mobile; a tunnel does not exhaust the attempts |
 | D24 | ICE `disconnected` only renegotiates, however long it lasts | `disconnected` for 3 s is a retryable loss (§8.4) | do not wait for a late `failed` |
 | D25 | opening the socket has no timeout | 10 s (§2.1) | an attempt on a dead network does not hang |
+| D26 | `addTracksOnReconnect` defaults to false: after a reconnection the user publishes nothing until the app adds its tracks again | defaults to true (§6) | a network switch on mobile should not silently turn off the camera and microphone |
 
 ## 23. Golden fixtures
 

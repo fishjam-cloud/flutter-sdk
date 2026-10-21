@@ -90,8 +90,12 @@ LocalTrackContext _track(String id, {RtcMediaTrack? media}) =>
 
 const _loss = RetryableClose(code: 1011, reason: 'Internal server error');
 
-// maxAttempts 3, initialDelay 500 ms (the defaults), delay 300 ms.
-const _config = ReconnectConfig(delay: Duration(milliseconds: 300));
+// maxAttempts 3, initialDelay 500 ms (the defaults), delay 300 ms, tracks
+// not restored.
+const _config = ReconnectConfig(
+  delay: Duration(milliseconds: 300),
+  addTracksOnReconnect: false,
+);
 
 void main() {
   late _Host host;
@@ -267,7 +271,7 @@ void main() {
         'Reconnected', () {
       fakeAsync((async) {
         final ended = FakeMediaTrack.video()..end();
-        final m = manager(const ReconnectConfig(addTracksOnReconnect: true))
+        final m = manager(const ReconnectConfig())
           ..onRetryableLoss(
             _loss,
             snapshot(
@@ -329,7 +333,7 @@ void main() {
     test('a loss during restoration cancels Reconnected and schedules the '
         'next attempt', () {
       fakeAsync((async) {
-        final m = manager(const ReconnectConfig(addTracksOnReconnect: true))
+        final m = manager(const ReconnectConfig())
           ..onRetryableLoss(
             _loss,
             snapshot(
@@ -393,7 +397,7 @@ void main() {
 
     test('a terminal close during restoration prevents Reconnected', () {
       fakeAsync((async) {
-        final m = manager(const ReconnectConfig(addTracksOnReconnect: true))
+        final m = manager(const ReconnectConfig())
           ..onRetryableLoss(
             _loss,
             snapshot(tracks: [_track('cam', media: FakeMediaTrack.video())]),
@@ -646,7 +650,7 @@ void main() {
         'and cancels Reconnected', () {
       fakeAsync((async) {
         final pending = host.pendingRestores['t1'] = Completer<void>();
-        final m = manager(const ReconnectConfig(addTracksOnReconnect: true))
+        final m = manager(const ReconnectConfig())
           ..onRetryableLoss(
             _loss,
             snapshot(tracks: [_track('t1', media: FakeMediaTrack.video())]),

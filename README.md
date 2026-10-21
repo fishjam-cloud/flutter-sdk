@@ -109,7 +109,7 @@ A lost connection is re-established automatically (`ReconnectConfig`):
   session (track operations, metadata updates, `createDataChannels()`) fail at once with `StateError`.
 - Before the new `Joined`, the remote tracks and peers you knew are reported with `TrackRemoved` and
   `PeerLeft` / `ComponentRemoved`; the new `Joined` lists the room as it is now.
-- Local tracks are re-published only with `ReconnectConfig(addTracksOnReconnect: true)`, under new track ids
+- Local tracks are re-published (`ReconnectConfig.addTracksOnReconnect`, on by default), under new track ids
   (the old ids get `LocalTrackRemoved`). Create the data channels again after `Reconnected`.
 
 `replaceTrack(id, null)` mutes by sending nothing; the device keeps capturing until you stop the track.

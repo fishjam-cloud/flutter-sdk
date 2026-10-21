@@ -21,13 +21,13 @@ const _fast = ReconnectConfig(
   maxAttempts: 2,
   initialDelay: Duration(milliseconds: 20),
   delay: Duration(milliseconds: 20),
+  addTracksOnReconnect: false,
 );
 
 const _fastRestore = ReconnectConfig(
   maxAttempts: 2,
   initialDelay: Duration(milliseconds: 20),
   delay: Duration(milliseconds: 20),
-  addTracksOnReconnect: true,
 );
 
 Future<void> _wait(int ms) async {
