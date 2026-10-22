@@ -22,12 +22,15 @@ const localPeerId = 'local-peer';
 /// One client plus its fakes.
 class ClientHarness {
   /// Creates the client; nothing is connected yet.
-  ClientHarness({ReconnectConfig reconnect = const ReconnectConfig()})
-    : rtc = FakeRtcAdapter() {
+  ClientHarness({
+    ReconnectConfig reconnect = const ReconnectConfig(),
+    AudioOutputManager? audioOutput,
+  }) : rtc = FakeRtcAdapter() {
     client = FishjamClient.internal(
       reconnect: reconnect,
       rtcAdapter: rtc,
       transportFactory: transports.call,
+      audioOutput: audioOutput,
     );
     _subscription = client.events.listen(events.add);
   }
