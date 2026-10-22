@@ -227,11 +227,14 @@ void main() {
       ]);
     });
 
-    test('is a no-op on iOS', () async {
+    test('calls native code on iOS', () async {
       final m = manager(TargetPlatform.iOS);
       await m.enterCommunicationMode();
       await m.exitCommunicationMode();
-      expect(calls, isEmpty);
+      expect(calls.map((c) => c.method), [
+        'enterCommunicationMode',
+        'exitCommunicationMode',
+      ]);
     });
   });
 

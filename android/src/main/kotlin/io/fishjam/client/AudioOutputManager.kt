@@ -5,12 +5,15 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import io.flutter.plugin.common.MethodChannel.Result
 
 /**
@@ -30,6 +33,11 @@ class AudioOutputManager(
     private var scoReceiver: BroadcastReceiver? = null
     private var isObserving = false
     private var ownsCommunicationMode = false
+
+    // AudioFocusRequest exists from API 26. A field of that type is resolved
+    // when this class loads, and minSdk is 23.
+    private var focusRequest: Any? = null
+    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { }
 
     // Single in-flight selection: a new request supersedes any prior one.
     private var pending: PendingSelect? = null
@@ -162,6 +170,9 @@ class AudioOutputManager(
 
     fun enterCommunicationMode() {
         ownsCommunicationMode = true
+        // Mode alone leaves other apps playing. GAIN_TRANSIENT pauses them for
+        // the call and lets them resume when the focus is abandoned (SPEC §20b).
+        requestCommunicationFocus()
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         routeToBluetoothHeadset()
     }
@@ -169,15 +180,69 @@ class AudioOutputManager(
     fun exitCommunicationMode() {
         if (!ownsCommunicationMode) return
         ownsCommunicationMode = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.clearCommunicationDevice()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audioManager.clearCommunicationDevice()
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.isBluetoothScoOn = false
+                @Suppress("DEPRECATION")
+                audioManager.stopBluetoothSco()
+            }
+            audioManager.mode = AudioManager.MODE_NORMAL
+        } finally {
+            abandonCommunicationFocus()
+        }
+    }
+
+    private fun requestCommunicationFocus() {
+        abandonCommunicationFocus()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            requestCommunicationFocusApi26()
         } else {
             @Suppress("DEPRECATION")
-            audioManager.isBluetoothScoOn = false
-            @Suppress("DEPRECATION")
-            audioManager.stopBluetoothSco()
+            val result = audioManager.requestAudioFocus(
+                focusChangeListener,
+                AudioManager.STREAM_VOICE_CALL,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+            )
+            if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                Log.w(TAG, "Audio focus not granted ($result)")
+            }
         }
-        audioManager.mode = AudioManager.MODE_NORMAL
+    }
+
+    @TargetApi(Build.VERSION_CODES.O)
+    private fun requestCommunicationFocusApi26() {
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            )
+            .setOnAudioFocusChangeListener(focusChangeListener, mainHandler)
+            .build()
+        focusRequest = request
+        val result = audioManager.requestAudioFocus(request)
+        if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            Log.w(TAG, "Audio focus not granted ($result)")
+        }
+    }
+
+    private fun abandonCommunicationFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            abandonCommunicationFocusApi26()
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(focusChangeListener)
+        }
+    }
+
+    @TargetApi(Build.VERSION_CODES.O)
+    private fun abandonCommunicationFocusApi26() {
+        (focusRequest as? AudioFocusRequest)?.let { audioManager.abandonAudioFocusRequest(it) }
+        focusRequest = null
     }
 
     private fun availableDevices(): List<AudioDeviceInfo> =
@@ -294,6 +359,7 @@ class AudioOutputManager(
     }
 
     companion object {
+        private const val TAG = "AudioOutputManager"
         private const val ROUTE_CHANGE_TIMEOUT_MS = 3000L
 
         const val E_SELECT = "E_AUDIO_OUTPUT_SELECT"

@@ -58,9 +58,18 @@ class FishjamClientPlugin : FlutterPlugin {
     }
 
     /**
-     * flutter_webrtc's AudioSwitch picks its own route whenever audio starts and
-     * would undo selectAudioOutput. Reflection keeps this plugin free of a build
-     * dependency on flutter_webrtc.
+     * AudioSwitch's route is one class: speaker, earpiece, the first Bluetooth
+     * headset, or the first wired headset. It applies that route whenever
+     * capture or playback starts, which replaces the device id chosen by
+     * [AudioOutputManager.selectAudioOutput]. It also drops audio focus when
+     * the last peer connection is disposed, including during reconnection.
+     *
+     * [AudioOutputManager.enterCommunicationMode] requests
+     * `AUDIOFOCUS_GAIN_TRANSIENT` (voice communication) for the room session,
+     * so a paused app can resume when the focus is abandoned. iOS session
+     * setup stays in flutter_webrtc
+     * (`playAndRecord`, other apps do not mix in). Reflection keeps this plugin
+     * free of a build dependency on flutter_webrtc.
      */
     private fun disableFlutterWebrtcAudioRouting() {
         try {

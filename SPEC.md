@@ -607,11 +607,25 @@ React Native SDK's `AudioOutputManager` and talks to the SDK's native plugin ove
   confirmation within 3 s), `cancelled` (the plugin stopped observing), `invalid` (bad override value),
   `override` (iOS rejected the override), `unknown` (any other code).
 - On Android the client puts the audio system into communication mode on `Joined` and returns it to normal
-  when the session ends (any `Disconnected`). Entering communication mode routes to a connected Bluetooth
-  headset, and a headset connected during the call is routed to as well. Failures of these calls are logged
-  and never escape.
-- On Android the plugin turns off flutter_webrtc's own routing (`AudioSwitchManager`) when it is attached,
-  so the two do not fight over the route. On iOS flutter_webrtc keeps configuring the audio session category.
+  when the session ends (any `Disconnected`). The mode stays up across reconnection. Entering requests audio
+  focus (`AUDIOFOCUS_GAIN_TRANSIENT`, usage voice communication, content type speech; stream `VOICE_CALL`
+  below API 26) so other apps pause and can resume when the focus is abandoned, sets
+  `MODE_IN_COMMUNICATION`, and routes to a connected Bluetooth headset. A headset
+  connected during the call is routed to as well. Exiting restores normal mode, then abandons the focus.
+  Failures of these calls are logged and never escape.
+- On Android the plugin turns off flutter_webrtc's `AudioSwitchManager` when it is attached. AudioSwitch's
+  route is one class (speaker, earpiece, the first Bluetooth headset, or the first wired headset), and it
+  applies that route whenever audio starts, which replaces a device selected by id. It also releases focus
+  when the last peer connection is disposed. This plugin holds that focus for the room session instead.
+  On iOS, flutter_webrtc keeps the audio session (`playAndRecord`, other apps do not mix in), which is what
+  pauses other apps there. When the session ends, this plugin deactivates that session with
+  `notifyOthersOnDeactivation`, so a paused app can resume. A deactivation that omits that option does not
+  resume anything, and flutter_webrtc's own deactivation omits it. If this plugin is no longer silencing
+  other apps when it releases the session, it activates the session once and deactivates it again with the
+  option, so the resume signal rides a real active-to-inactive transition. Capture may still be running at
+  `Disconnected`; the release is retried at 0.2 s, 0.6 s and 1.2 s. A new `Joined` cancels a release still
+  in progress. The iOS route observer starts when Dart subscribes to `onAudioOutputChanged`, so a change is
+  delivered even when no device getter has run yet.
 
 ## 21. Logging
 

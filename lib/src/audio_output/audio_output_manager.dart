@@ -146,22 +146,30 @@ class AudioOutputManager {
         );
       });
 
-  /// Puts Android into call audio mode and routes to a connected Bluetooth
-  /// headset. A no-op on other platforms.
+  /// Starts call audio.
+  ///
+  /// On Android, takes audio focus so other apps pause and routes to a
+  /// connected Bluetooth headset. On iOS, flutter_webrtc starts the call
+  /// session; this cancels a release still in progress from the previous
+  /// call. A no-op on other platforms.
   @internal
   Future<void> enterCommunicationMode() async {
-    if (_platform() == TargetPlatform.android) {
-      await _invoke<void>('enterCommunicationMode');
-    }
+    if (_managesCallAudio) await _invoke<void>('enterCommunicationMode');
   }
 
-  /// Returns Android to normal audio mode. A no-op on other platforms.
+  /// Ends call audio so a paused app can resume.
+  ///
+  /// On Android, restores normal mode and releases audio focus. On iOS,
+  /// deactivates the audio session and tells other apps they can resume.
+  /// A no-op on other platforms.
   @internal
   Future<void> exitCommunicationMode() async {
-    if (_platform() == TargetPlatform.android) {
-      await _invoke<void>('exitCommunicationMode');
-    }
+    if (_managesCallAudio) await _invoke<void>('exitCommunicationMode');
   }
+
+  bool get _managesCallAudio =>
+      _platform() == TargetPlatform.android ||
+      _platform() == TargetPlatform.iOS;
 
   void _require(TargetPlatform platform, String method) {
     if (_platform() != platform) {

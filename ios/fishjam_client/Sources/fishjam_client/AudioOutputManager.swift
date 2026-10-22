@@ -8,6 +8,7 @@ import UIKit
 final class AudioOutputManager {
   private let emit: ([String: Any]) -> Void
   private var routeObserver: NSObjectProtocol?
+  private var releaseGeneration = 0
 
   init(emit: @escaping ([String: Any]) -> Void) {
     self.emit = emit
@@ -24,18 +25,32 @@ final class AudioOutputManager {
     }
   }
 
+  /// Starts delivering route changes. Call this only after the event sink is
+  /// set: a notification posted before that has nowhere to go (SPEC §20b).
+  func startObserving() {
+    guard routeObserver == nil else { return }
+    routeObserver = NotificationCenter.default.addObserver(
+      forName: AVAudioSession.routeChangeNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      guard let self else { return }
+      self.emit([
+        "currentAudioOutput": self.currentDevice() ?? NSNull(),
+        "availableAudioOutputs": self.availableDevices(),
+      ])
+    }
+  }
+
   func getAvailableAudioOutputs(result: FlutterResult) {
-    ensureRouteObserver()
     result(availableDevices())
   }
 
   func getCurrentAudioOutput(result: FlutterResult) {
-    ensureRouteObserver()
     result(currentDevice())
   }
 
   func overrideAudioOutput(_ output: String?, result: FlutterResult) {
-    ensureRouteObserver()
     let port: AVAudioSession.PortOverride
     switch output {
     case "speaker": port = .speaker
@@ -64,8 +79,20 @@ final class AudioOutputManager {
     }
   }
 
+  /// Drops a release scheduled by [exitCommunicationMode]. flutter_webrtc
+  /// activates the call session; this method does not.
+  func enterCommunicationMode() {
+    releaseGeneration += 1
+  }
+
+  /// Deactivates the call session and tells other apps they can resume.
+  /// Retried while capture is still running. See SPEC §20b.
+  func exitCommunicationMode() {
+    releaseGeneration += 1
+    releaseOtherApps(generation: releaseGeneration, attempt: 0)
+  }
+
   func showAudioRoutePicker(result: FlutterResult) {
-    ensureRouteObserver()
     let picker = AVRoutePickerView(frame: .zero)
     let keyWindow = UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }
@@ -81,20 +108,52 @@ final class AudioOutputManager {
     result(nil)
   }
 
-  private func ensureRouteObserver() {
-    guard routeObserver == nil else { return }
-    routeObserver = NotificationCenter.default.addObserver(
-      forName: AVAudioSession.routeChangeNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      guard let self else { return }
-      self.emit([
-        "currentAudioOutput": self.currentDevice() ?? NSNull(),
-        "availableAudioOutputs": self.availableDevices(),
-      ])
+  /// `setActive(false)` without `notifyOthersOnDeactivation` leaves a paused
+  /// app paused. flutter_webrtc deactivates that way. When this session is
+  /// no longer silencing other apps, activate it once so the resume signal
+  /// is attached to a real transition back to inactive (SPEC §20b).
+  private func releaseOtherApps(generation: Int, attempt: Int) {
+    guard generation == releaseGeneration else { return }
+    let session = AVAudioSession.sharedInstance()
+    guard Self.isCallCategory(session.category) else { return }
+
+    if !session.secondaryAudioShouldBeSilencedHint {
+      do {
+        try session.setActive(true)
+      } catch {
+        NSLog(
+          "FishjamClient: audio session not activated for release: %@",
+          error.localizedDescription
+        )
+        scheduleReleaseRetry(generation: generation, attempt: attempt)
+        return
+      }
+    }
+
+    do {
+      try session.setActive(false, options: .notifyOthersOnDeactivation)
+    } catch {
+      NSLog(
+        "FishjamClient: audio session not released: %@",
+        error.localizedDescription
+      )
+      scheduleReleaseRetry(generation: generation, attempt: attempt)
     }
   }
+
+  private func scheduleReleaseRetry(generation: Int, attempt: Int) {
+    guard attempt < Self.releaseRetryDelays.count else { return }
+    let delay = Self.releaseRetryDelays[attempt]
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+      self?.releaseOtherApps(generation: generation, attempt: attempt + 1)
+    }
+  }
+
+  private static func isCallCategory(_ category: AVAudioSession.Category) -> Bool {
+    category == .playAndRecord || category == .record || category == .multiRoute
+  }
+
+  private static let releaseRetryDelays: [TimeInterval] = [0.2, 0.6, 1.2]
 
   private func availableDevices() -> [[String: Any]] {
     var devices: [[String: Any]] = [

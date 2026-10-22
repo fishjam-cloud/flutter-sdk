@@ -34,6 +34,12 @@ public class FishjamClientPlugin: NSObject, FlutterPlugin, FlutterStreamHandler 
       audioOutput.overrideAudioOutput(call.arguments as? String, result: result)
     case "showAudioRoutePicker":
       audioOutput.showAudioRoutePicker(result: result)
+    case "enterCommunicationMode":
+      audioOutput.enterCommunicationMode()
+      result(nil)
+    case "exitCommunicationMode":
+      audioOutput.exitCommunicationMode()
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -44,10 +50,14 @@ public class FishjamClientPlugin: NSObject, FlutterPlugin, FlutterStreamHandler 
     eventSink events: @escaping FlutterEventSink
   ) -> FlutterError? {
     audioEventSink = events
+    // Sink first, then the observer. A route change after subscribe reaches
+    // Dart even when the app has not read the device list (SPEC §20b).
+    audioOutput.startObserving()
     return nil
   }
 
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    audioOutput.stopObserving()
     audioEventSink = nil
     return nil
   }
