@@ -476,6 +476,35 @@ void main() {
       expect(h.client.localPeer!.tracks.keys, [restored.trackId]);
     });
 
+    test(
+      'a later reconnection reports each restored track removed once',
+      () async {
+        h = ClientHarness(reconnect: _fastRestore);
+        await h.join();
+        final cam = await h.publish('video');
+        h.events.clear();
+
+        Future<void> reconnect() async {
+          h.transport.serverClose(code: 1011, reason: 'boom');
+          await _wait(40);
+          await h.authenticate();
+          await h.connectedEvent();
+          await h.negotiate();
+          await settle();
+        }
+
+        await reconnect();
+        final cam2 = h.eventsOf<LocalTrackAdded>().single.track.trackId;
+        await reconnect();
+
+        expect(h.eventsOf<LocalTrackRemoved>().map((e) => e.trackId), [
+          cam,
+          cam2,
+        ]);
+        expect(h.eventsOf<Reconnected>(), hasLength(2));
+      },
+    );
+
     test('tracks restored by an attempt that is then lost are reported '
         'removed too', () async {
       h = ClientHarness(reconnect: _fastRestore);

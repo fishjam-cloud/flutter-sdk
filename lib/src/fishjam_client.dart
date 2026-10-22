@@ -688,7 +688,12 @@ class _Host implements ReconnectHost {
 
   @override
   void emit(FishjamEvent event) {
-    if (event is Reconnected) _client._status = ConnectionStatus.joined;
+    if (event is Reconnected) {
+      _client._status = ConnectionStatus.joined;
+      // Its tracks are now the snapshot of the next reconnection, which
+      // reports them removed itself.
+      _client._session?.isReconnectAttempt = false;
+    }
     _client._emit(event);
   }
 }
