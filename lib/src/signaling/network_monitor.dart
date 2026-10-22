@@ -27,9 +27,9 @@ enum NetworkChange {
 
 /// Turns [NetworkMonitor] reports into [NetworkChange]s (SPEC §6.1): the
 /// first value is the baseline, and reports are acted on once they have been
-/// stable for [settle]; each change carries the time its first report
-/// arrived. When the OS cannot be asked, it logs a warning and reports
-/// nothing.
+/// stable for [settle], except a network reported after offline, which is
+/// acted on at once; each change carries the time its first report arrived.
+/// When the OS cannot be asked, it logs a warning and reports nothing.
 class NetworkWatcher {
   NetworkWatcher({
     required this._monitor,
@@ -96,6 +96,12 @@ class NetworkWatcher {
     _began ??= clock.now();
     if (networks.isEmpty) _wentOffline = true;
     _settling?.cancel();
+    if (networks.isNotEmpty && (_wentOffline || _last!.isEmpty)) {
+      // A network after offline can only mean a new session is needed;
+      // settling would only delay it.
+      _settled(networks);
+      return;
+    }
     _settling = Timer(settle, () => _settled(networks));
   }
 

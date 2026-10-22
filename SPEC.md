@@ -212,6 +212,9 @@ the session will not survive; reacting at once avoids waiting for a pong timeout
 - A report is acted on once the reports have been stable for 500 ms (the **settle** time), so the brief
   "offline" some platforms report while switching networks is not a loss of its own. Each change carries the
   time its first report arrived (when the change **began**).
+- Exception: a network reported after offline (settled, or still settling) is acted on at once. The change is
+  then certain to be `available` or `changed`, and waiting would only delay the new session. Later reports
+  settle against it as usual.
 - Kinds of change, comparing the settled set with the previous one:
   - **lost**: now offline;
   - **available**: online after being offline;

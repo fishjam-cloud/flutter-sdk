@@ -98,6 +98,43 @@ void main() {
     });
   });
 
+  test('a network appearing after a settled offline is available at once', () {
+    run((async) {
+      monitor.report({});
+      async.elapse(_settle);
+      final began = clock.now();
+      monitor.report({'cellular'});
+      async.flushMicrotasks();
+
+      expect(changes.last, (NetworkChange.available, began));
+    });
+  });
+
+  test('a network appearing while offline is still settling is a change at '
+      'once, that began with the offline report', () {
+    run((async) {
+      final began = clock.now();
+      monitor.report({});
+      async.elapse(const Duration(milliseconds: 200));
+      monitor.report({'wifi'});
+      async.flushMicrotasks();
+
+      expect(changes, [(NetworkChange.changed, began)]);
+    });
+  });
+
+  test('reports right after a network appeared settle against it', () {
+    run((async) {
+      monitor
+        ..report({})
+        ..report({'wifi'})
+        ..report({'wifi', 'cellular'});
+      async.elapse(_settle);
+
+      expect(kinds(), [NetworkChange.changed]);
+    });
+  });
+
   test('only gaining a network is no change; losing one later is', () {
     run((async) {
       monitor.report({'wifi', 'cellular'});
