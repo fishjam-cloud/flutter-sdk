@@ -788,6 +788,17 @@ void main() {
       expect(h.transport.sentMessages.single.hasAuthRequest(), isTrue);
     });
 
+    test('an old socket whose close fails is not an unhandled error', () async {
+      h = ClientHarness(reconnect: slow);
+      await h.join();
+      final gate = h.transport.closeGate = Completer<void>();
+      h.network.report({'cellular'});
+      await settle();
+      gate.completeError(StateError('socket failed'));
+      await _wait(10);
+      expect(h.transports.created, hasLength(2));
+    });
+
     test('offline: the attempt waits for the network, then starts at '
         'once', () async {
       h = ClientHarness(reconnect: _fast);

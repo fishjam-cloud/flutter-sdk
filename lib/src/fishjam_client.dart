@@ -532,7 +532,12 @@ class FishjamClient {
     if (waitForSocket) {
       await closing;
     } else {
-      unawaited(closing);
+      // The socket has often failed already, and then so does its close.
+      unawaited(
+        closing.catchError(
+          (Object e) => _logger.debug('Closing the old socket failed: $e'),
+        ),
+      );
     }
     if (identical(_socket, session.signaling)) _socket = null;
   }
