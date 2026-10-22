@@ -173,9 +173,9 @@ class ReconnectManager {
   /// reports every snapshotted track removed (once per reconnection),
   /// restores tracks, releases the queue and emits `Reconnected`.
   ///
-  /// Only live tracks are restored; ended or muted ones are skipped and a
-  /// failed restore does not stop the others. If the session is lost
-  /// while restoring, `Reconnected` is not emitted for it.
+  /// Only live tracks are restored, all at once; ended or muted ones are
+  /// skipped and a failed restore does not stop the others. If the session
+  /// is lost while restoring, `Reconnected` is not emitted for it.
   Future<void> onSessionJoined() async {
     if (_state != ReconnectState.reconnecting) return;
     if (!_online) {
@@ -194,15 +194,14 @@ class ReconnectManager {
       }
     }
     if (_config.addTracksOnReconnect) {
-      for (final track in tracks) {
-        if (!(track.rtcTrack?.isLive ?? false)) continue;
-        try {
-          await _host.restoreTrack(track);
-        } on Object {
-          // The host reports the failure; the other tracks still go.
-        }
-        if (generation != _generation) return;
-      }
+      // Started together, so they ride one negotiation cycle and the media
+      // comes back at once. The host reports a failure; the others still go.
+      await Future.wait([
+        for (final track in tracks)
+          if (track.rtcTrack?.isLive ?? false)
+            _host.restoreTrack(track).then<void>((_) {}, onError: (_) {}),
+      ]);
+      if (generation != _generation) return;
     }
     _finish(ReconnectState.idle, release: true);
     _host.emit(const Reconnected());

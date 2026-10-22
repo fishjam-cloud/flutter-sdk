@@ -505,8 +505,33 @@ void main() {
       },
     );
 
-    test('tracks restored by an attempt that is then lost are reported '
-        'removed too', () async {
+    test(
+      'live tracks are restored together, in one negotiation cycle',
+      () async {
+        h = ClientHarness(reconnect: _fastRestore);
+        await h.join();
+        await h.publish('video');
+        await h.publish('audio');
+        final renegotiations = h.sentOf(_C.renegotiateTracks).length;
+        h.events.clear();
+
+        h.transport.serverClose(code: 1011, reason: 'boom');
+        await _wait(40);
+        await h.authenticate();
+        await h.connectedEvent();
+        await h.negotiate();
+        await settle();
+
+        expect(h.sentOf(_C.renegotiateTracks), hasLength(renegotiations + 1));
+        final offer = h.sentOf(_C.sdpOffer).last.sdpOffer;
+        expect(offer.trackIdToMetadataJson, hasLength(2));
+        expect(h.eventsOf<LocalTrackAdded>(), hasLength(2));
+        expect(h.eventsOf<Reconnected>(), hasLength(1));
+      },
+    );
+
+    test('an attempt lost while its tracks are being restored adds none of '
+        'them; the next attempt restores them all', () async {
       h = ClientHarness(reconnect: _fastRestore);
       await h.join();
       final cam = await h.publish('video');
@@ -517,24 +542,17 @@ void main() {
       await _wait(40);
       await h.authenticate();
       await h.connectedEvent();
-      await h.negotiate(); // the camera is restored
-      final cam2 = h.eventsOf<LocalTrackAdded>().single.track.trackId;
-      h.transport.serverClose(code: 1011, reason: 'boom'); // mic pending
+      h.transport.serverClose(code: 1011, reason: 'boom'); // restore pending
       await _wait(60);
       await h.authenticate();
       await h.connectedEvent();
       await h.negotiate();
-      await h.negotiate();
       await settle();
 
-      expect(h.eventsOf<LocalTrackRemoved>().map((e) => e.trackId), [
-        cam,
-        mic,
-        cam2,
-      ]);
+      expect(h.eventsOf<LocalTrackRemoved>().map((e) => e.trackId), [cam, mic]);
       final added = h.eventsOf<LocalTrackAdded>().map((e) => e.track.trackId);
-      expect(added, hasLength(3));
-      expect(h.client.localPeer!.tracks.keys, added.skip(1));
+      expect(added, hasLength(2));
+      expect(h.client.localPeer!.tracks.keys, added);
       expect(h.eventsOf<Reconnected>(), hasLength(1));
     });
 

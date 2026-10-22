@@ -266,8 +266,8 @@ void main() {
       });
     });
 
-    test('restores live tracks in order, skips ended and muted ones, '
-        'survives failures, then releases the queue and emits '
+    test('restores live tracks together and in order, skips ended and muted '
+        'ones, survives failures, then releases the queue and emits '
         'Reconnected', () {
       fakeAsync((async) {
         final ended = FakeMediaTrack.video()..end();
@@ -293,8 +293,13 @@ void main() {
         unawaited(m.onSessionJoined().then((_) => done = true));
         async.flushMicrotasks();
 
-        // The queue stays held until every restore settled.
-        expect(host.calls.last, 'restoreTrack:cam');
+        // Every restore starts before the first one completes, so they ride
+        // one negotiation cycle; the queue stays held until all settled.
+        expect(host.calls.where((c) => c.startsWith('restoreTrack')), [
+          'restoreTrack:cam',
+          'restoreTrack:broken',
+          'restoreTrack:mic',
+        ]);
         expect(host.count('releaseQueue'), 0);
         expect(m.isReconnecting, isTrue);
         expect(done, isFalse);
@@ -308,7 +313,7 @@ void main() {
           'restoreTrack:broken',
           'restoreTrack:mic',
         ]);
-        expect(host.restored, ['cam', 'mic']);
+        expect(host.restored, unorderedEquals(['cam', 'mic']));
         // Every old track id is reported removed, in order, before the
         // first restore (restored tracks get new ids).
         expect(
@@ -352,7 +357,7 @@ void main() {
         host.pendingRestores['cam']!.complete();
         async.flushMicrotasks();
 
-        expect(host.count('restoreTrack:mic'), 0);
+        expect(host.count('restoreTrack:mic'), 1);
         expect(host.count('emit:Reconnected'), 0);
         expect(host.count('releaseQueue'), 0);
         expect(m.isReconnecting, isTrue);
