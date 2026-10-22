@@ -233,8 +233,9 @@ the session will not survive; reacting at once avoids waiting for a pong timeout
 | reconnecting | available or changed | the attempt budget starts over (`maxAttempts` on the new network). An attempt in progress that started after the change began is kept: it already runs on the new network. Otherwise a scheduled attempt is cancelled, an attempt in progress is abandoned (its session torn down silently) and a new attempt starts at once |
 | reconnecting | offline for `offlineTimeout` | as "no attempts left" (§6): `ReconnectionFailed`, then `Disconnected(reconnectionFailed)` |
 
-- A session of a reconnection that reaches `connected` while the device is offline does not complete it: no
-  `Reconnected`; the reconnection waits for the network and starts a new attempt then.
+- A session of a reconnection that reaches `connected` while the device is offline, or goes offline before its
+  tracks are restored, does not complete it: no `Reconnected`; the reconnection waits for the network and starts
+  a new attempt then.
 - One reconnection makes at most `3 × maxAttempts` attempts in total, so a network that keeps changing cannot
   keep it going forever; when that cap is reached the reconnection fails as when no attempts are left.
 - When the OS cannot be asked, the client assumes it is always online and never reports a change (logged).

@@ -175,7 +175,8 @@ class ReconnectManager {
   ///
   /// Only live tracks are restored, all at once; ended or muted ones are
   /// skipped and a failed restore does not stop the others. If the session
-  /// is lost while restoring, `Reconnected` is not emitted for it.
+  /// is lost or the device goes offline while restoring, `Reconnected` is not
+  /// emitted for it.
   Future<void> onSessionJoined() async {
     if (_state != ReconnectState.reconnecting) return;
     if (!_online) {
@@ -202,6 +203,13 @@ class ReconnectManager {
             _host.restoreTrack(track).then<void>((_) {}, onError: (_) {}),
       ]);
       if (generation != _generation) return;
+      if (!_online) {
+        // Nothing reports the loss of this session while it is not yet
+        // joined, so it is abandoned like one that joined offline.
+        _attemptStartedAt = null;
+        _waitForNetwork();
+        return;
+      }
     }
     _finish(ReconnectState.idle, release: true);
     _host.emit(const Reconnected());

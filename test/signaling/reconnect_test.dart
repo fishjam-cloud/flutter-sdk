@@ -691,6 +691,32 @@ void main() {
       });
     });
 
+    test('a session that goes offline while its tracks are restored does not '
+        'complete the reconnection; the network back starts a new attempt', () {
+      fakeAsync((async) {
+        final pending = host.pendingRestores['t1'] = Completer<void>();
+        final m = manager(const ReconnectConfig())
+          ..onRetryableLoss(
+            _loss,
+            snapshot(tracks: [_track('t1', media: FakeMediaTrack.video())]),
+          );
+        async.elapse(const Duration(milliseconds: 500));
+        unawaited(m.onSessionJoined());
+        async.flushMicrotasks();
+
+        m.onNetworkLost();
+        pending.complete();
+        async.flushMicrotasks();
+        expect(host.events.whereType<Reconnected>(), isEmpty);
+        expect(host.count('releaseQueue'), 0);
+        expect(m.isReconnecting, isTrue);
+
+        m.onNetworkAvailable(since: clock.now());
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 2);
+      });
+    });
+
     test('offline for offlineTimeout fails the reconnection', () {
       fakeAsync((async) {
         final m =
