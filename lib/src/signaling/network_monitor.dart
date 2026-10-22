@@ -45,6 +45,9 @@ class NetworkWatcher {
 
   StreamSubscription<Set<String>>? _subscription;
 
+  /// Bumped by [stop], so a [start] still reading the start value gives up.
+  int _runs = 0;
+
   /// The last settled networks; `null` before the baseline.
   Set<String>? _last;
 
@@ -59,7 +62,13 @@ class NetworkWatcher {
   /// Starts watching with a new baseline (stops a previous watch first).
   Future<void> start() async {
     await stop();
+    final run = _runs;
     try {
+      // Read first: a platform that cannot be asked reports a failed
+      // subscription to the framework's error handler, not to the stream.
+      final networks = await _monitor.current();
+      if (run != _runs) return;
+      _last = networks;
       _subscription = _monitor.changes.listen(
         _onReport,
         onError: (Object e) {
@@ -67,8 +76,6 @@ class NetworkWatcher {
           unawaited(stop());
         },
       );
-      final networks = await _monitor.current();
-      if (_subscription != null) _last ??= networks;
     } on Object catch (e) {
       _logger.warn('Cannot read the network state; not watching it', e);
       await stop();
@@ -76,6 +83,7 @@ class NetworkWatcher {
   }
 
   Future<void> stop() async {
+    _runs++;
     final cancelled = _subscription?.cancel();
     _subscription = null;
     _last = null;
@@ -87,10 +95,6 @@ class NetworkWatcher {
   }
 
   void _onReport(Set<String> networks) {
-    if (_last == null) {
-      _last = networks;
-      return;
-    }
     // Platforms report a short "offline" while they switch the default
     // network; acting on it would cost a reconnection of its own.
     _began ??= clock.now();

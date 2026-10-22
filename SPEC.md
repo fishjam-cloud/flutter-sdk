@@ -238,7 +238,9 @@ the session will not survive; reacting at once avoids waiting for a pong timeout
   a new attempt then.
 - One reconnection makes at most `3 × maxAttempts` attempts in total, so a network that keeps changing cannot
   keep it going forever; when that cap is reached the reconnection fails as when no attempts are left.
-- When the OS cannot be asked, the client assumes it is always online and never reports a change (logged).
+- When the OS cannot be asked, the client assumes it is always online and never reports a change. This is only
+  logged: the client asks for the networks in use before it subscribes to reports, so nothing reaches the app's
+  error handler.
 
 ## 7. Media event processing
 

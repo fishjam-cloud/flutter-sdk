@@ -149,25 +149,41 @@ void main() {
     });
   });
 
-  test('a report that arrives before the start value is the baseline', () {
+  test('reports are listened to only once the start value was read, so an '
+      'OS that cannot be asked is never subscribed to', () {
     fakeAsync((async) {
       final gate = monitor.currentGate = Completer<void>();
       unawaited(watcher.start());
       async.flushMicrotasks();
-      monitor.report({'cellular'});
-      async.flushMicrotasks();
+      expect(monitor.isWatched, isFalse);
+
       gate.complete();
       async.flushMicrotasks();
-      monitor.report({'cellular'});
+      expect(monitor.isWatched, isTrue);
+      monitor.report({'wifi'});
       async.elapse(_settle);
-
       expect(changes, isEmpty);
     });
   });
 
-  test('when the OS cannot be asked, it warns and reports nothing', () {
+  test('stop while the start value is read: nothing is listened to', () {
+    fakeAsync((async) {
+      final gate = monitor.currentGate = Completer<void>();
+      unawaited(watcher.start());
+      async.flushMicrotasks();
+      unawaited(watcher.stop());
+      gate.complete();
+      async.flushMicrotasks();
+
+      expect(monitor.isWatched, isFalse);
+    });
+  });
+
+  test('when the OS cannot be asked, it warns, reports nothing and does not '
+      'listen', () {
     monitor.currentError = StateError('no plugin');
     run((async) {
+      expect(monitor.isWatched, isFalse);
       monitor.report({'cellular'});
       async.elapse(_settle);
 
