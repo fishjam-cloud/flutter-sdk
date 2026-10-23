@@ -105,10 +105,10 @@ void main() {
     expect((await transport.onClose).error, isNotNull);
   });
 
-  test('pings every 5 s and gives up opening a socket after 10 s', () {
+  test('pings every 15 s and gives up opening a socket after 10 s', () {
     final transport = WebSocketTransport();
 
-    expect(transport.pingInterval, const Duration(seconds: 5));
+    expect(transport.pingInterval, const Duration(seconds: 15));
     expect(transport.connectTimeout, const Duration(seconds: 10));
   });
 

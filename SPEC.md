@@ -36,7 +36,7 @@ Conventions:
   else becomes `https://fishjam.io/api/v1/connect/<id>`.
 - Every frame in both directions is **binary** and contains exactly one `fishjam.PeerMessage`.
 - Text frames from the server are ignored (logged at debug level).
-- The server pings every 30 s. The client additionally sends its own pings (interval 5 s) and treats a
+- The server pings every 30 s. The client additionally sends its own pings (interval 15 s) and treats a
   missing pong within one interval as a connection loss (retryable, [§6](#6-reconnection)).
 - Opening the socket (connection, TLS and upgrade) times out after 10 s; a timeout fails like a socket that
   cannot be opened.

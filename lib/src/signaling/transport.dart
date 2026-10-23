@@ -77,7 +77,7 @@ typedef SignalingTransportFactory = SignalingTransport Function();
 final class WebSocketTransport implements SignalingTransport {
   /// Ignored text frames are logged at debug level with [logger].
   WebSocketTransport({
-    this.pingInterval = const Duration(seconds: 5),
+    this.pingInterval = const Duration(seconds: 15),
     this.connectTimeout = const Duration(seconds: 10),
     FishjamLogger? logger,
   }) : _logger = logger ?? FishjamLogger.disabled();
