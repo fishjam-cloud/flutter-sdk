@@ -8,8 +8,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_network.dart';
 
-const _settle = Duration(milliseconds: 500);
-
 void main() {
   late FakeNetworkMonitor monitor;
   late List<(NetworkChange, DateTime)> changes;
@@ -43,108 +41,55 @@ void main() {
   test('the networks in use at start are the baseline, not a change', () {
     run((async) {
       monitor.report({'wifi'});
-      async.elapse(_settle * 2);
+      async.flushMicrotasks();
 
       expect(changes, isEmpty);
     });
   });
 
-  test('a change is reported once the reports have been stable for 500 ms, '
-      'with the time its first report arrived', () {
+  test('a report is acted on at once, at the time it arrived', () {
     run((async) {
       final began = clock.now();
       monitor.report({'cellular'});
-      async.elapse(_settle - const Duration(milliseconds: 1));
-      expect(changes, isEmpty);
+      async.flushMicrotasks();
 
-      async.elapse(const Duration(milliseconds: 1));
       expect(changes, [(NetworkChange.changed, began)]);
     });
   });
 
-  test('offline is lost; online after offline is available', () {
+  test('offline is lost; online after offline is available, even when it '
+      'comes right after', () {
     run((async) {
-      monitor.report({});
-      async.elapse(_settle);
-      monitor.report({'cellular'});
-      async.elapse(_settle);
+      monitor
+        ..report({})
+        ..report({'wifi'});
+      async.flushMicrotasks();
 
       expect(kinds(), [NetworkChange.lost, NetworkChange.available]);
     });
   });
 
-  test('reports within the settle time are one change that began with the '
-      'first of them', () {
-    run((async) {
-      final began = clock.now();
-      monitor.report({});
-      async.elapse(const Duration(milliseconds: 200));
-      monitor.report({'cellular'});
-      async.elapse(_settle);
-
-      expect(changes, [(NetworkChange.changed, began)]);
-    });
-  });
-
-  test('back to the same networks through offline is a change: another '
-      'Wi-Fi network looks the same', () {
+  test('a repeated report is no change', () {
     run((async) {
       monitor
         ..report({})
-        ..report({'wifi'});
-      async.elapse(_settle);
-
-      expect(kinds(), [NetworkChange.changed]);
-    });
-  });
-
-  test('a network appearing after a settled offline is available at once', () {
-    run((async) {
-      monitor.report({});
-      async.elapse(_settle);
-      final began = clock.now();
-      monitor.report({'cellular'});
-      async.flushMicrotasks();
-
-      expect(changes.last, (NetworkChange.available, began));
-    });
-  });
-
-  test('a network appearing while offline is still settling is a change at '
-      'once, that began with the offline report', () {
-    run((async) {
-      final began = clock.now();
-      monitor.report({});
-      async.elapse(const Duration(milliseconds: 200));
-      monitor.report({'wifi'});
-      async.flushMicrotasks();
-
-      expect(changes, [(NetworkChange.changed, began)]);
-    });
-  });
-
-  test('reports right after a network appeared settle against it', () {
-    run((async) {
-      monitor
         ..report({})
         ..report({'wifi'})
-        ..report({'wifi', 'cellular'});
-      async.elapse(_settle);
+        ..report({'wifi'});
+      async.flushMicrotasks();
 
-      expect(kinds(), [NetworkChange.changed]);
+      expect(kinds(), [NetworkChange.lost, NetworkChange.available]);
     });
   });
 
   test('only gaining a network is no change; losing one later is', () {
     run((async) {
       monitor.report({'wifi', 'cellular'});
-      async.elapse(_settle);
-      monitor.report({'wifi', 'cellular'});
-      async.elapse(_settle);
+      async.flushMicrotasks();
       expect(changes, isEmpty);
 
       monitor.report({'cellular'});
-      async.elapse(_settle);
+      async.flushMicrotasks();
       expect(kinds(), [NetworkChange.changed]);
     });
   });
@@ -161,7 +106,7 @@ void main() {
       async.flushMicrotasks();
       expect(monitor.isWatched, isTrue);
       monitor.report({'wifi'});
-      async.elapse(_settle);
+      async.flushMicrotasks();
       expect(changes, isEmpty);
     });
   });
@@ -207,7 +152,7 @@ void main() {
     run((async) {
       expect(monitor.isWatched, isFalse);
       monitor.report({'cellular'});
-      async.elapse(_settle);
+      async.flushMicrotasks();
 
       expect(changes, isEmpty);
       expect(logs, [startsWith('warn')]);
@@ -233,19 +178,17 @@ void main() {
     });
   });
 
-  test('stop ends watching and drops a change still settling; start after '
-      'stop takes a new baseline', () {
+  test('stop ends watching; start after stop takes a new baseline', () {
     run((async) {
-      monitor.report({'cellular'});
       unawaited(watcher.stop());
-      async.elapse(_settle);
+      async.flushMicrotasks();
       expect(monitor.isWatched, isFalse);
-      expect(changes, isEmpty);
 
+      monitor.report({'cellular'});
       unawaited(watcher.start());
       async.flushMicrotasks();
       monitor.report({'cellular'});
-      async.elapse(_settle);
+      async.flushMicrotasks();
       expect(changes, isEmpty);
     });
   });

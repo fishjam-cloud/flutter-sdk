@@ -818,10 +818,7 @@ void main() {
     });
 
     test('a brief offline while switching networks is one change', () async {
-      h = ClientHarness(
-        reconnect: slow,
-        networkSettle: const Duration(milliseconds: 50),
-      );
+      h = ClientHarness(reconnect: slow);
       await h.join();
       h.network.report({});
       await _wait(10);

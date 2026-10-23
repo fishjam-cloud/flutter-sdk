@@ -68,7 +68,6 @@ class FishjamClient {
     RtcAdapter? rtcAdapter,
     this._transportFactory,
     NetworkMonitor? networkMonitor,
-    Duration networkSettle = const Duration(milliseconds: 500),
   }) : _adapter = rtcAdapter ?? const FlutterWebrtcAdapter(),
        _logger = FishjamLogger(enabled: debug) {
     _reconnect = ReconnectManager(config: reconnect, host: _Host(this));
@@ -77,7 +76,6 @@ class FishjamClient {
         monitor: networkMonitor,
         logger: _logger,
         onChanged: _onNetworkChanged,
-        settle: networkSettle,
       );
     }
     _dataChannels = DataChannelManager(

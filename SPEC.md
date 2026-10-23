@@ -219,19 +219,18 @@ the session will not survive; reacting at once avoids waiting for a pong timeout
 
 - Watching starts at `connect()` and stops when the client is disconnected. The first value read is the
   baseline. **Online** means at least one network is reported; **offline** means none.
-- A report is acted on once the reports have been stable for 500 ms (the **settle** time), so the brief
-  "offline" some platforms report while switching networks is not a loss of its own. Each change carries the
-  time its first report arrived (when the change **began**).
-- Exception: a network reported after offline (settled, or still settling) is acted on at once. The change is
-  then certain to be `available` or `changed`, and waiting would only delay the new session. Later reports
-  settle against it as usual.
-- Kinds of change, comparing the settled set with the previous one:
+- Every report is acted on when it arrives, compared with the previous report; each change carries the time
+  its report arrived (when the change **began**). The brief "offline" some platforms report while switching
+  networks is not waited out: no attempt starts while offline, and the network reported after it starts one at
+  once.
+- Kinds of change:
   - **lost**: now offline;
   - **available**: online after being offline;
-  - **changed**: a network went away (Wi-Fi → cellular, a VPN going down), or the same set was reached through
-    offline (another Wi-Fi network looks the same).
+  - **changed**: a network went away while another remains (Wi-Fi → cellular, a VPN going down).
   - Only gaining a network (cellular added next to Wi-Fi, a VPN coming up) and a repeat of the same set are no
     change: the connection keeps its path.
+- A switch between two Wi-Fi networks looks like the same set: some platforms report it as offline and then
+  online (`lost`, then `available`), others not at all, and then the socket or ICE reports the loss.
 
 | Status | Change | Action |
 |---|---|---|
