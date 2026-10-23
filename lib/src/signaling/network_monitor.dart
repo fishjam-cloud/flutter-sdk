@@ -77,6 +77,8 @@ class NetworkWatcher {
         },
       );
     } on Object catch (e) {
+      // A newer start may be watching already; this one only had to give up.
+      if (run != _runs) return;
       _logger.warn('Cannot read the network state; not watching it', e);
       await stop();
     }

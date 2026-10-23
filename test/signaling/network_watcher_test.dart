@@ -179,6 +179,28 @@ void main() {
     });
   });
 
+  test(
+    'a superseded start whose read fails leaves the newer watch running',
+    () {
+      fakeAsync((async) {
+        final gate = monitor.currentGate = Completer<void>();
+        unawaited(watcher.start());
+        async.flushMicrotasks();
+        monitor.currentGate = null;
+        unawaited(watcher.start());
+        async.flushMicrotasks();
+        expect(monitor.isWatched, isTrue);
+
+        monitor.currentError = StateError('no answer');
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(monitor.isWatched, isTrue);
+        expect(logs, isEmpty);
+      });
+    },
+  );
+
   test('when the OS cannot be asked, it warns, reports nothing and does not '
       'listen', () {
     monitor.currentError = StateError('no plugin');
