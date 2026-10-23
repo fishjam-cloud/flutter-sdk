@@ -109,7 +109,10 @@ idle ──connect()──▶ connecting ──authenticated──▶ authentica
    - join close reason → `JoinException(reason)` (and `JoinFailed` is emitted),
    - any other close or socket failure before `Joined` → `ConnectionException(code, reason)`.
    Reconnection is **not** attempted for failures before the first `Joined`.
-6. Calling `connect()` while not `idle`/`disconnected` throws `StateError`.
+6. Calling `connect()` while not `idle`/`disconnected` throws `StateError`. The status is `disconnected`
+   from the moment a session is given up, so `connect()` may be called from a listener of an event emitted
+   then (e.g. `ReconnectionFailed`); the teardown of the given-up session settles only the `connect()` call
+   that started it.
 
 ### 3.3 `leave()`
 
@@ -201,6 +204,10 @@ States: `idle`, `reconnecting`, `failed`.
   session. A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it after the removals.
   If an attempt that already re-added tracks is lost before `Reconnected`, those new ids are reported
   removed when the next attempt starts.
+- Only tracks the app got `LocalTrackAdded` for (and no `LocalTrackRemoved` yet) are snapshotted, reported
+  removed and re-added. A track whose `addTrack` was still negotiating when the session was lost is not: its
+  `addTrack` fails, so the app never learned its id and does not expect it published. Neither is a track an
+  abandoned attempt negotiated without its `LocalTrackAdded` reaching the app.
 - A **muted** track (no media track) is not re-added: there is nothing to publish. The app adds the track
   again when it unmutes.
 

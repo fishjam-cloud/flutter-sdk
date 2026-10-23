@@ -21,7 +21,6 @@ import 'package:fishjam_client/src/signaling/reconnect.dart';
 import 'package:fishjam_client/src/signaling/signaling_session.dart';
 import 'package:fishjam_client/src/signaling/transport.dart';
 import 'package:fishjam_client/src/stats/stats_reporter.dart';
-import 'package:fishjam_client/src/tracks/local_track.dart';
 import 'package:fishjam_client/src/tracks/local_track_registry.dart';
 import 'package:fishjam_client/src/tracks/remote_track.dart';
 import 'package:fishjam_client/src/version.dart';
@@ -132,6 +131,12 @@ class FishjamClient {
   /// by a session that was lost; reported gone before the next `Joined`.
   ({List<Peer> peers, List<Component> components})? _staleRemote;
 
+  /// Local track ids the app got `LocalTrackAdded` for and no
+  /// `LocalTrackRemoved` yet. A track is registered before its negotiation
+  /// ends, and an abandoned session's events are not forwarded, so only these
+  /// are reported removed or restored on a reconnection.
+  final _announcedLocalTracks = <String>{};
+
   /// All client events (broadcast, not replayed).
   Stream<FishjamEvent> get events => _events.stream;
 
@@ -158,6 +163,7 @@ class FishjamClient {
     _token = token;
     _reconnect.reset();
     _staleRemote = null;
+    _announcedLocalTracks.clear();
     _status = ConnectionStatus.connecting;
     unawaited(_network?.start());
     final connecting = _connecting = Completer<void>();
@@ -456,7 +462,10 @@ class FishjamClient {
     final session = _session!;
     final snapshot = ReconnectSnapshot(
       peerMetadata: session.localTracks.peerMetadata,
-      tracks: [for (final t in session.localTracks.tracks) t.toContext()],
+      tracks: [
+        for (final t in session.localTracks.tracks)
+          if (_announcedLocalTracks.contains(t.trackId)) t.toContext(),
+      ],
     );
     if (_reconnect.onRetryableLoss(reason, snapshot)) {
       _abandon(session);
@@ -502,11 +511,15 @@ class FishjamClient {
     _session = null;
     _staleRemote = null;
     _status = ConnectionStatus.disconnected;
+    // Taken now: the app may call connect() again while the teardown runs
+    // (e.g. from a `ReconnectionFailed` listener), and that call is not ours
+    // to fail.
+    final connecting = _connecting;
+    _connecting = null;
     unawaited(_network?.stop());
     await _teardown(session, sendDisconnect: sendDisconnect);
     if (error != null) _emit(error);
     _emit(disconnected);
-    final connecting = _connecting;
     if (connecting != null && !connecting.isCompleted) {
       connecting.completeError(
         connectError ??
@@ -598,6 +611,13 @@ class FishjamClient {
   }
 
   void _emit(FishjamEvent event) {
+    switch (event) {
+      case LocalTrackAdded(:final track):
+        _announcedLocalTracks.add(track.trackId);
+      case LocalTrackRemoved(:final trackId):
+        _announcedLocalTracks.remove(trackId);
+      case _:
+    }
     if (!_events.isClosed) _events.add(event);
   }
 
@@ -652,7 +672,7 @@ class _Host implements ReconnectHost {
       // `LocalTrackAdded`; they go away with that session.
       if (old.isReconnectAttempt) {
         for (final track in old.localTracks.tracks) {
-          if (track.negotiationStatus == TrackNegotiationStatus.negotiated) {
+          if (_client._announcedLocalTracks.contains(track.trackId)) {
             _client._emit(LocalTrackRemoved(track.trackId));
           }
         }

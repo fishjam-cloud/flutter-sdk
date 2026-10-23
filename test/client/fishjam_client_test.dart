@@ -922,6 +922,118 @@ void main() {
       });
     });
 
+    group('only local tracks the app was told about are reported removed and '
+        'restored', () {
+      List<String> localEvents() => [
+        for (final e in h.events)
+          switch (e) {
+            LocalTrackAdded(:final track) => 'added ${track.trackId}',
+            LocalTrackRemoved(:final trackId) => 'removed $trackId',
+            Reconnected() => 'Reconnected',
+            _ => null,
+          },
+      ].nonNulls.toList();
+
+      test('a track still being added when the network changes', () async {
+        h = ClientHarness(reconnect: _fastRestore);
+        await h.join();
+        final adding = h.client.addTrack(h.track('audio'));
+        await settle();
+        h.network.report({'cellular'});
+        await expectLater(adding, throwsStateError);
+        await _wait(10);
+        expect(h.transports.created, hasLength(2));
+        await h.authenticate();
+        await h.connectedEvent();
+        await settle();
+
+        expect(localEvents(), ['Reconnected']);
+      });
+
+      test('a track restored by an attempt that failed before announcing '
+          'it', () async {
+        h = ClientHarness(reconnect: _fastRestore);
+        await h.join();
+        final first = await h.publish('audio');
+        h.events.clear();
+        h.transport.serverClose(code: 1011, reason: 'boom');
+        await _wait(40);
+        await h.authenticate();
+        await h.connectedEvent();
+        await h.receive(
+          server.MediaEvent(
+            offerData: server.MediaEvent_OfferData(
+              tracksTypes: server.MediaEvent_OfferData_TrackTypes(),
+            ),
+          ),
+        );
+        final offer = h.sentOf(_C.sdpOffer).last.sdpOffer;
+        final attempt = h.transport;
+        h.pc.setConnectionState(PeerConnectionState.failed);
+        await settle();
+        attempt.receive(
+          PeerMessage(
+            serverMediaEvent: server.MediaEvent(
+              sdpAnswer: server.MediaEvent_SdpAnswer(
+                sdp: 'v=0\r\ns=fake-answer\r\n',
+                midToTrackId: offer.midToTrackId.entries,
+              ),
+            ),
+          ),
+        );
+        await _wait(40);
+        await h.authenticate();
+        await h.connectedEvent();
+        await h.negotiate();
+        await settle();
+
+        final events = localEvents();
+        expect(events.first, 'removed $first');
+        final added = {
+          for (final e in events)
+            if (e.startsWith('added ')) e.substring(6),
+        };
+        final removed = [
+          for (final e in events.skip(1))
+            if (e.startsWith('removed ')) e.substring(8),
+        ];
+        expect(removed.where((id) => !added.contains(id)), isEmpty);
+        expect(events.last, 'Reconnected');
+      });
+    });
+
+    test('connect() from a ReconnectionFailed listener is not failed by the '
+        'teardown of the given-up session', () async {
+      h = ClientHarness(
+        reconnect: const ReconnectConfig(
+          offlineTimeout: Duration(milliseconds: 50),
+        ),
+      );
+      await h.join();
+      Object? retryError;
+      var retried = false;
+      final retry = h.client.events.listen((e) {
+        if (e is! ReconnectionFailed) return;
+        retried = true;
+        unawaited(
+          h.client
+              .connect(url: 'ws://fishjam.test', token: 'peer-token')
+              .then<void>((_) {}, onError: (Object e) => retryError = e),
+        );
+      });
+      addTearDown(retry.cancel);
+      h.network.report({});
+      await _wait(100);
+      expect(retried, isTrue);
+      expect(retryError, isNull);
+      await h.authenticate();
+      await h.connectedEvent();
+      await settle();
+
+      expect(retryError, isNull);
+      expect(h.client.status, ConnectionStatus.joined);
+    });
+
     test('a report equal to the start value changes nothing', () async {
       h = ClientHarness(reconnect: _fast);
       await h.join();
