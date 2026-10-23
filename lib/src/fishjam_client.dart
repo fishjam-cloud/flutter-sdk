@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fishjam_client/src/audio_output/audio_output_manager.dart';
 import 'package:fishjam_client/src/connectivity_network_monitor.dart';
 import 'package:fishjam_client/src/data/data_channels.dart';
 import 'package:fishjam_client/src/engine/rtc_engine.dart';
@@ -56,11 +57,13 @@ class FishjamClient {
          debug: debug,
          reconnect: reconnect,
          networkMonitor: ConnectivityNetworkMonitor(),
+         audioOutput: AudioOutputManager.instance,
        );
 
   /// A client on a custom WebRTC adapter, socket transport and network
   /// monitor (tests only; they default to `flutter_webrtc`, `dart:io`
-  /// WebSockets and no network watching).
+  /// WebSockets and no network watching). Without `audioOutput` the audio
+  /// mode is never changed.
   @internal
   FishjamClient.internal({
     this.debug = false,
@@ -68,6 +71,7 @@ class FishjamClient {
     RtcAdapter? rtcAdapter,
     this._transportFactory,
     NetworkMonitor? networkMonitor,
+    this._audioOutput,
   }) : _adapter = rtcAdapter ?? const FlutterWebrtcAdapter(),
        _logger = FishjamLogger(enabled: debug) {
     _reconnect = ReconnectManager(config: reconnect, host: _Host(this));
@@ -97,6 +101,11 @@ class FishjamClient {
 
   final ReconnectConfig reconnect;
 
+  final AudioOutputManager? _audioOutput;
+
+  /// Whether the audio system was put into communication mode and not yet
+  /// returned; kept across reconnections.
+  bool _inCommunicationMode = false;
   final RtcAdapter _adapter;
   final SignalingTransportFactory? _transportFactory;
   final FishjamLogger _logger;
@@ -376,6 +385,7 @@ class FishjamClient {
     if (!_reconnect.isReconnecting) _status = ConnectionStatus.joined;
     _emit(joined);
     _stats.start();
+    _setCommunicationMode(on: true);
     final connecting = _connecting;
     if (connecting != null && !connecting.isCompleted) connecting.complete();
     unawaited(_reconnect.onSessionJoined());
@@ -516,6 +526,7 @@ class FishjamClient {
     _connecting = null;
     unawaited(_network?.stop());
     await _teardown(session, sendDisconnect: sendDisconnect);
+    _setCommunicationMode(on: false);
     if (error != null) _emit(error);
     _emit(disconnected);
     if (connecting != null && !connecting.isCompleted) {
@@ -617,6 +628,20 @@ class FishjamClient {
       case _:
     }
     if (!_events.isClosed) _events.add(event);
+  }
+
+  void _setCommunicationMode({required bool on}) {
+    final audioOutput = _audioOutput;
+    if (audioOutput == null || _inCommunicationMode == on) return;
+    _inCommunicationMode = on;
+    unawaited(
+      (on
+              ? audioOutput.enterCommunicationMode()
+              : audioOutput.exitCommunicationMode())
+          .catchError((Object e) {
+            _logger.warn('Audio communication mode not changed: $e');
+          }),
+    );
   }
 
   static RoomType _roomTypeOf(PeerMessage_RoomType type) => switch (type) {

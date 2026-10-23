@@ -18,18 +18,18 @@ class JoinScreen extends StatefulWidget {
 class _JoinScreenState extends State<JoinScreen> {
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController(text: 'flutter');
-  // Optional prefill from dart-defines; see example/.env.example.
+  // Optional prefill: flutter run --dart-define-from-file=.env.local
+  // (copy example/.env.example to .env.local).
   final _fishjamUrl = TextEditingController(
     text: const String.fromEnvironment('FISHJAM_ID'),
   );
   final _peerToken = TextEditingController(
     text: const String.fromEnvironment('PEER_TOKEN'),
   );
-  final _sandboxUrl = TextEditingController(text: _sandboxUrlDefine);
+  static const _sandboxApiUrl = String.fromEnvironment('SANDBOX_API_URL');
+  final _sandboxUrl = TextEditingController(text: _sandboxApiUrl);
   final _roomName = TextEditingController(text: 'flutter-room');
-  _Mode _mode = _sandboxUrlDefine.isEmpty ? _Mode.peerToken : _Mode.sandbox;
-
-  static const _sandboxUrlDefine = String.fromEnvironment('SANDBOX_API_URL');
+  _Mode _mode = _sandboxApiUrl.isEmpty ? _Mode.peerToken : _Mode.sandbox;
   bool _busy = false;
 
   @override

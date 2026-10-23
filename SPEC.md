@@ -173,7 +173,7 @@ All client → server messages go through a single ordered queue in front of the
 ## 6. Reconnection
 
 Configuration (`ReconnectConfig`): `maxAttempts` (default 3), `initialDelay` (default 500 ms), `delay`
-(default 500 ms), `addTracksOnReconnect` (default true, D26), `offlineTimeout` (default 60 s, [§6.1](#61-network-changes)).
+(default 500 ms), `addTracksOnReconnect` (default true, D27), `offlineTimeout` (default 60 s, [§6.1](#61-network-changes)).
 `ReconnectConfig.disabled` turns it off. Reconnect is enabled with defaults unless configured otherwise.
 
 States: `idle`, `reconnecting`, `failed`.
@@ -639,6 +639,53 @@ When `authenticated.roomType` is `ROOM_TYPE_AUDIO_ONLY`, `addTrack` with a video
   `@internal`); a context built from test fakes returns `null` from the native getters but keeps its state
   (`isReady`, `isMuted`).
 
+## 20b. Audio output routing
+
+`AudioOutputManager.instance` lists, reads and switches the device that plays call audio. It mirrors the
+React Native SDK's `AudioOutputManager` and talks to the SDK's native plugin over the method channel
+`io.fishjam.client/audio_output` and the event channel `io.fishjam.client/audio_output_events`.
+
+- A device is `{type, nativeType, name, id}`. `type` is one of `earpiece`, `speaker`, `bluetooth`,
+  `wiredHeadset`, `usb`, `hdmi`, `airplay`, `carAudio`, `hearingAid`, `lineOut`, `unknown`; any other value
+  received from native code becomes `unknown`. `nativeType` is the platform name (e.g. `bluetoothHFP` on iOS,
+  `bluetoothSCO` on Android).
+- Ids: on iOS the built-in speaker is `speaker`, the built-in receiver is `receiver`, other ports use the
+  port UID. On Android the id is `AudioDeviceInfo.getId()` as a string.
+- `getAvailableAudioOutputs()` and `getCurrentAudioOutput()` read the state. The current device is `null`
+  when unknown. `onAudioOutputChanged` emits `{currentAudioOutput, availableAudioOutputs}` whenever the route
+  or the device list changes.
+- iOS only (`ios`): `overrideAudioOutput(speaker | none)` forces the built-in speaker or clears the override;
+  `showAudioRoutePicker()` opens the system route picker, the only way to pick a specific Bluetooth device.
+- Android only (`android`): `selectAudioOutput(id)` completes only after the system reports that device as
+  current. On API 31+ it uses `setCommunicationDevice` (earpiece: `clearCommunicationDevice`); below, it
+  toggles speakerphone and Bluetooth SCO.
+- Calling an `ios` method on Android or an `android` method on iOS throws `UnsupportedError` without calling
+  native code.
+- Native failures become `AudioOutputException(code)`: `select` (bad id, device unavailable, platform call
+  failed), `superseded` (a newer `selectAudioOutput` call was made; safe to ignore), `timeout` (no
+  confirmation within 3 s), `cancelled` (the plugin stopped observing), `invalid` (bad override value),
+  `override` (iOS rejected the override), `unknown` (any other code).
+- On Android the client puts the audio system into communication mode on `Joined` and returns it to normal
+  when the session ends (any `Disconnected`). The mode stays up across reconnection. Entering requests audio
+  focus (`AUDIOFOCUS_GAIN_TRANSIENT`, usage voice communication, content type speech; stream `VOICE_CALL`
+  below API 26) so other apps pause and can resume when the focus is abandoned, sets
+  `MODE_IN_COMMUNICATION`, and routes to a connected Bluetooth headset. A headset
+  connected during the call is routed to as well. Exiting restores normal mode, then abandons the focus.
+  Failures of these calls are logged and never escape.
+- On Android the plugin turns off flutter_webrtc's `AudioSwitchManager` when it is attached. AudioSwitch's
+  route is one class (speaker, earpiece, the first Bluetooth headset, or the first wired headset), and it
+  applies that route whenever audio starts, which replaces a device selected by id. It also releases focus
+  when the last peer connection is disposed. This plugin holds that focus for the room session instead.
+  On iOS, flutter_webrtc keeps the audio session (`playAndRecord`, other apps do not mix in), which is what
+  pauses other apps there. When the session ends, this plugin deactivates that session with
+  `notifyOthersOnDeactivation`, so a paused app can resume. A deactivation that omits that option does not
+  resume anything, and flutter_webrtc's own deactivation omits it. If this plugin is no longer silencing
+  other apps when it releases the session, it activates the session once and deactivates it again with the
+  option, so the resume signal rides a real active-to-inactive transition. Capture may still be running at
+  `Disconnected`; the release is retried at 0.2 s, 0.6 s and 1.2 s. A new `Joined` cancels a release still
+  in progress. The iOS route observer starts when Dart subscribes to `onAudioOutputChanged`, so a change is
+  delivered even when no device getter has run yet.
+
 ## 21. Logging
 
 One SDK logger, created from `FishjamClient(debug: bool)`. Messages are prefixed with `[FISHJAM]` and emitted
@@ -670,10 +717,11 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D20 | a failed `replaceTrack` is swallowed; the call succeeds | rolled back, then the call fails with the error (§11.3) | the app learns the media was not replaced |
 | D21 | local track ids of the lost session silently disappear on reconnect | `LocalTrackRemoved` for every old id; restored tracks get `LocalTrackAdded` with new ids (§6) | apps can drop stale ids |
 | D22 | remote peers and tracks of the lost session are kept and re-announced with `peerJoined` / `trackAdded` after reconnecting | `TrackRemoved` and `PeerLeft` / `ComponentRemoved` for all of them before the new `Joined`, whose snapshot is the source of truth (§6) | no stale or duplicate remote state |
-| D23 | a network switch is noticed only when the socket or ICE fails; attempts are used up while the device is offline | losing a network is a retryable loss; attempts wait while offline (at most `offlineTimeout`) and restart with a fresh budget on a new network (§6.1) | fast recovery on mobile; a tunnel does not exhaust the attempts |
-| D24 | ICE `disconnected` only renegotiates, however long it lasts | `disconnected` for 3 s is a retryable loss (§8.4) | do not wait for a late `failed` |
-| D25 | opening the socket has no timeout | 10 s (§2.1) | an attempt on a dead network does not hang |
-| D26 | `addTracksOnReconnect` defaults to false: after a reconnection the user publishes nothing until the app adds its tracks again | defaults to true (§6) | a network switch on mobile should not silently turn off the camera and microphone |
+| D23 | (React Native SDK) audio output routing goes through Android Telecom while a Telecom call is active | always `AudioManager` (§20b) | this SDK has no Telecom integration yet |
+| D24 | a network switch is noticed only when the socket or ICE fails; attempts are used up while the device is offline | losing a network is a retryable loss; attempts wait while offline (at most `offlineTimeout`) and restart with a fresh budget on a new network (§6.1) | fast recovery on mobile; a tunnel does not exhaust the attempts |
+| D25 | ICE `disconnected` only renegotiates, however long it lasts | `disconnected` for 3 s is a retryable loss (§8.4) | do not wait for a late `failed` |
+| D26 | opening the socket has no timeout | 10 s (§2.1) | an attempt on a dead network does not hang |
+| D27 | `addTracksOnReconnect` defaults to false: after a reconnection the user publishes nothing until the app adds its tracks again | defaults to true (§6) | a network switch on mobile should not silently turn off the camera and microphone |
 
 ## 23. Golden fixtures
 
