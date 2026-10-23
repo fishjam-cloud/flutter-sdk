@@ -536,6 +536,29 @@ void main() {
       expect(await liveRecv(h), isEmpty);
     });
 
+    test(
+      'orphans of every kind are stopped before any negotiated one',
+      () async {
+        final (h, _) = await _joined();
+        await h.offerData(video: 1);
+        await h.answer();
+        h.pc.failNext('setLocalDescription', StateError('failed'));
+        await h.offerData(video: 1, audio: 1);
+        final states = h.pc.transceiverStates;
+        expect(states.map((t) => (t.kind, t.mid)), [
+          (MediaKind.video, '0'),
+          (MediaKind.audio, null),
+        ]);
+
+        await h.offerData();
+        expect(h.pc.callsOf('stopTransceiver').map((c) => c.args), [
+          {'mid': null, 'kind': 'audio'},
+          {'mid': '0', 'kind': 'video'},
+        ]);
+        expect(states.every((t) => t.isStopped), isTrue);
+      },
+    );
+
     test('stopped transceivers are not counted', () async {
       final (h, _) = await _joined();
       await h.offerData(audio: 1);
