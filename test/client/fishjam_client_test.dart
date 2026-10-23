@@ -385,6 +385,16 @@ void main() {
   });
 
   group('reconnection (SPEC §6)', () {
+    /// Loses the session; the next attempt joins and restores the tracks.
+    Future<void> reconnectAndRestore() async {
+      h.transport.serverClose(code: 1011, reason: 'boom');
+      await _wait(40);
+      await h.authenticate();
+      await h.connectedEvent();
+      await h.negotiate();
+      await settle();
+    }
+
     test('a peer connection failure replaces the session', () async {
       h = ClientHarness(reconnect: _fast);
       await h.join();
@@ -484,18 +494,9 @@ void main() {
         final cam = await h.publish('video');
         h.events.clear();
 
-        Future<void> reconnect() async {
-          h.transport.serverClose(code: 1011, reason: 'boom');
-          await _wait(40);
-          await h.authenticate();
-          await h.connectedEvent();
-          await h.negotiate();
-          await settle();
-        }
-
-        await reconnect();
+        await reconnectAndRestore();
         final cam2 = h.eventsOf<LocalTrackAdded>().single.track.trackId;
-        await reconnect();
+        await reconnectAndRestore();
 
         expect(h.eventsOf<LocalTrackRemoved>().map((e) => e.trackId), [
           cam,
@@ -515,12 +516,7 @@ void main() {
         final renegotiations = h.sentOf(_C.renegotiateTracks).length;
         h.events.clear();
 
-        h.transport.serverClose(code: 1011, reason: 'boom');
-        await _wait(40);
-        await h.authenticate();
-        await h.connectedEvent();
-        await h.negotiate();
-        await settle();
+        await reconnectAndRestore();
 
         expect(h.sentOf(_C.renegotiateTracks), hasLength(renegotiations + 1));
         final offer = h.sentOf(_C.sdpOffer).last.sdpOffer;

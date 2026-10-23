@@ -547,6 +547,8 @@ void main() {
   });
 
   group('network changes (SPEC §6.1)', () {
+    const offline10s = ReconnectConfig(offlineTimeout: Duration(seconds: 10));
+
     test('losing the network cancels the scheduled attempt; while offline '
         'nothing starts and a loss waits instead of using an attempt', () {
       fakeAsync((async) {
@@ -719,12 +721,9 @@ void main() {
 
     test('offline for offlineTimeout fails the reconnection', () {
       fakeAsync((async) {
-        final m =
-            manager(
-                const ReconnectConfig(offlineTimeout: Duration(seconds: 10)),
-              )
-              ..onRetryableLoss(_loss, snapshot())
-              ..onNetworkLost();
+        final m = manager(offline10s)
+          ..onRetryableLoss(_loss, snapshot())
+          ..onNetworkLost();
         async.elapse(const Duration(milliseconds: 9999));
         expect(m.isReconnecting, isTrue);
 
@@ -740,12 +739,9 @@ void main() {
 
     test('the network back stops the offline timeout', () {
       fakeAsync((async) {
-        final m =
-            manager(
-                const ReconnectConfig(offlineTimeout: Duration(seconds: 10)),
-              )
-              ..onRetryableLoss(_loss, snapshot())
-              ..onNetworkLost();
+        final m = manager(offline10s)
+          ..onRetryableLoss(_loss, snapshot())
+          ..onNetworkLost();
         async.elapse(const Duration(seconds: 5));
         m.onNetworkAvailable(since: clock.now());
         async.elapse(const Duration(seconds: 30));

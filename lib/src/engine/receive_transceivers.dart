@@ -63,12 +63,10 @@ class ReceiveTransceivers {
         for (final id in ordered.take(excess)) (kind, id, snapshot[id]!),
       ]);
     }
-    victims.sort((a, b) {
-      final aNew = a.$3.mid == null ? 0 : 1;
-      final bNew = b.$3.mid == null ? 0 : 1;
-      return aNew - bNew;
-    });
-    for (final (kind, id, transceiver) in victims) {
+    for (final (kind, id, transceiver) in [
+      ...victims.where((v) => v.$3.mid == null),
+      ...victims.where((v) => v.$3.mid != null),
+    ]) {
       await transceiver.stop();
       _live[kind]!.remove(id);
     }

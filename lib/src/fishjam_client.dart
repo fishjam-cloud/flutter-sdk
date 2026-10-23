@@ -442,13 +442,7 @@ class FishjamClient {
     if (_status == ConnectionStatus.joined &&
         change != NetworkChange.available) {
       unawaited(
-        _onRetryableLoss(
-          RetryableClose(
-            reason: change == NetworkChange.lost
-                ? 'network lost'
-                : 'network changed',
-          ),
-        ),
+        _onRetryableLoss(RetryableClose(reason: 'network ${change.name}')),
       );
     }
     if (change == NetworkChange.lost) {
