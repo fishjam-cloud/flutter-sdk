@@ -7,6 +7,7 @@ public class FishjamClientPlugin: NSObject, FlutterPlugin, FlutterStreamHandler 
     self?.audioEventSink?(event)
   }
   private let callKitEvents = EventSinkHandler()
+  private let pictureInPicture = PictureInPictureManager()
   private lazy var callKit = CallKitManager { [weak self] event in
     self?.callKitEvents.sink?(event)
   }
@@ -40,6 +41,20 @@ public class FishjamClientPlugin: NSObject, FlutterPlugin, FlutterStreamHandler 
       binaryMessenger: registrar.messenger()
     )
     callKitEvents.setStreamHandler(instance.callKitEvents)
+
+    let pipChannel = FlutterMethodChannel(
+      name: "io.fishjam.client/pip",
+      binaryMessenger: registrar.messenger()
+    )
+    pipChannel.setMethodCallHandler { [weak instance] call, result in
+      guard let instance else { return result(FlutterMethodNotImplemented) }
+      instance.pictureInPicture.handle(call, result: result)
+    }
+    let pipEvents = FlutterEventChannel(
+      name: "io.fishjam.client/pip_events",
+      binaryMessenger: registrar.messenger()
+    )
+    pipEvents.setStreamHandler(instance.pictureInPicture)
   }
 
   private func handleAudio(_ call: FlutterMethodCall, result: @escaping FlutterResult) {

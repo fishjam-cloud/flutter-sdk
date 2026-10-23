@@ -13,4 +13,6 @@ Initial release.
 - Livestreams over WHIP (`publishLivestream`) and WHEP (`receiveLivestream`).
 - Background calls: Android foreground service (`ForegroundService`) and iOS CallKit session (`CallKit`)
   keep microphone capture and playback running while the app is in the background.
+- Picture-in-picture (`PictureInPictureView`, `PictureInPictureOptions`, `PictureInPictureController`),
+  matching the React Native SDK's `RTCPIPView`.
 - Behavioral differences from the Fishjam web SDK are listed in SPEC.md §22.
