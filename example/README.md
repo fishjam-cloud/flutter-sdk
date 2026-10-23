@@ -1,7 +1,7 @@
 # fishjam_example
 
 A minimal Fishjam room built with `fishjam_client`: it publishes the camera and microphone, renders the
-other peers' video, has mute toggles, a chat over the reliable data channel, and a leave button.
+other peers' video, and has mute toggles and a leave button.
 
 ## Run
 
