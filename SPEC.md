@@ -194,6 +194,9 @@ States: `idle`, `reconnecting`, `failed`.
   of its events are forwarded and its close or failure is ignored. App operations that need the session (track
   operations, metadata updates, `setTargetTrackEncoding`, `createDataChannels()`) fail at once with a
   `StateError` naming the reconnecting state; nothing is queued for later.
+- An attempt replaced after its `Joined` without a loss of its own (it joined while offline, or a new network
+  appeared while its tracks were restored, [§6.1](#61-network-changes)) counts as lost too: the remote
+  endpoints it announced are reported gone before the next `Joined`.
 - Every local track id of the lost session ends with `LocalTrackRemoved`: the tracks went away with the
   session. A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it after the removals.
   If an attempt that already re-added tracks is lost before `Reconnected`, those new ids are reported

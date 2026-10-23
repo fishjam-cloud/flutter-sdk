@@ -848,6 +848,80 @@ void main() {
       expect(h.client.status, ConnectionStatus.disconnected);
     });
 
+    group('an attempt replaced after its Joined has its remote endpoints '
+        'reported gone before the next Joined (D22)', () {
+      final bob = server.MediaEvent_Endpoint(
+        endpointType: 'exwebrtc',
+        metadataJson: '{"peer":{"name":"bob"},"server":{}}',
+        trackIdToTrack: {
+          'bob:cam': server.MediaEvent_Track(
+            metadataJson: '{"type":"camera","paused":false}',
+          ),
+        }.entries,
+      );
+
+      List<String> remoteEvents() => [
+        for (final e in h.events)
+          switch (e) {
+            TrackRemoved(:final track) => 'TrackRemoved ${track.trackId}',
+            PeerLeft(:final peer) => 'PeerLeft ${peer.id}',
+            Joined(:final peers) => 'Joined ${[for (final p in peers) p.id]}',
+            _ => null,
+          },
+      ].nonNulls.toList();
+
+      test('one that joined while offline', () async {
+        h = ClientHarness(reconnect: slow);
+        await h.join();
+        h.events.clear();
+        h.network.report({'cellular'});
+        await _wait(10);
+        h.network.report({});
+        await _wait(10);
+        await h.authenticate();
+        await h.connectedEvent(endpoints: {'bob': bob});
+        h.network.report({'wifi'});
+        await _wait(10);
+        expect(h.transports.created, hasLength(3));
+        await h.authenticate();
+        await h.connectedEvent();
+        await settle();
+
+        expect(remoteEvents(), [
+          'Joined [bob]',
+          'TrackRemoved bob:cam',
+          'PeerLeft bob',
+          'Joined []',
+        ]);
+        expect(h.eventsOf<Reconnected>(), hasLength(1));
+      });
+
+      test('one still restoring its tracks', () async {
+        h = ClientHarness(reconnect: _fastRestore);
+        await h.join();
+        await h.publish('audio');
+        h.events.clear();
+        h.network.report({'cellular'});
+        await _wait(10);
+        await h.authenticate();
+        // No negotiation follows, so the restore stays pending.
+        await h.connectedEvent(endpoints: {'bob': bob});
+        h.network.report({'wifi'});
+        await _wait(10);
+        expect(h.transports.created, hasLength(3));
+        await h.authenticate();
+        await h.connectedEvent();
+        await settle();
+
+        expect(remoteEvents(), [
+          'Joined [bob]',
+          'TrackRemoved bob:cam',
+          'PeerLeft bob',
+          'Joined []',
+        ]);
+      });
+    });
+
     test('a report equal to the start value changes nothing', () async {
       h = ClientHarness(reconnect: _fast);
       await h.join();

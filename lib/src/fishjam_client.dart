@@ -459,20 +459,27 @@ class FishjamClient {
       tracks: [for (final t in session.localTracks.tracks) t.toContext()],
     );
     if (_reconnect.onRetryableLoss(reason, snapshot)) {
-      // From here on the lost session reports nothing.
-      session.isLost = true;
-      if (session.isJoined) {
-        _staleRemote = (
-          peers: session.remote.peers,
-          components: session.remote.components,
-        );
-      }
+      _abandon(session);
       _status = ConnectionStatus.reconnecting;
       _stats.stop();
     } else if (_reconnect.state == ReconnectState.failed) {
       await _finish(const Disconnected(DisconnectReason.reconnectionFailed));
     } else {
       await _finish(disconnectedFor(reason));
+    }
+  }
+
+  /// From here on [session] reports nothing. Every path that replaces a
+  /// session comes through here, so the remote endpoints it announced are
+  /// reported gone before the next `Joined` (D22).
+  void _abandon(_Session session) {
+    if (session.isLost) return;
+    session.isLost = true;
+    if (session.isJoined) {
+      _staleRemote = (
+        peers: session.remote.peers,
+        components: session.remote.components,
+      );
     }
   }
 
@@ -634,6 +641,9 @@ class _Host implements ReconnectHost {
   @override
   Future<void> startSession(Object? peerMetadata) async {
     final old = _client._session;
+    // Without a reported loss (an attempt replaced after its `Joined`) this is
+    // where it is given up.
+    if (old != null) _client._abandon(old);
     // The new session becomes current first, so the old one is torn down
     // silently (no `Disconnected`) and its late reports are ignored.
     final session = _client._newSession()..isReconnectAttempt = true;
