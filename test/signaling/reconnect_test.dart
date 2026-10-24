@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:fishjam_client/src/models/config.dart';
 import 'package:fishjam_client/src/models/errors.dart';
@@ -579,7 +578,7 @@ void main() {
         final m = manager()
           ..onRetryableLoss(_loss, snapshot())
           ..onNetworkLost()
-          ..onNetworkAvailable(since: clock.now());
+          ..onNetworkAvailable();
         async.flushMicrotasks();
         expect(host.count('startSession'), 1);
 
@@ -602,7 +601,7 @@ void main() {
         m.onRetryableLoss(_loss, snapshot());
         expect(host.count('startSession'), 2);
 
-        m.onNetworkAvailable(since: clock.now());
+        m.onNetworkAvailable();
         async.flushMicrotasks();
         expect(host.count('startSession'), 3);
         async.elapse(const Duration(seconds: 5));
@@ -617,22 +616,7 @@ void main() {
       });
     });
 
-    test('an attempt that started after the change began is kept: it already '
-        'runs on the new network', () {
-      fakeAsync((async) {
-        host.startGate = Completer<void>();
-        final m = manager()..onRetryableLoss(_loss, snapshot());
-        final began = clock.now();
-        async.elapse(const Duration(milliseconds: 500));
-        expect(host.count('startSession'), 1);
-
-        m.onNetworkAvailable(since: began);
-        async.flushMicrotasks();
-        expect(host.count('startSession'), 1);
-      });
-    });
-
-    test('an attempt that started before the change began is abandoned; its '
+    test('an attempt in progress is abandoned; its '
         'late start error is ignored', () {
       fakeAsync((async) {
         final gate = host.startGate = Completer<void>();
@@ -642,7 +626,7 @@ void main() {
         expect(host.count('startSession'), 1);
 
         async.elapse(const Duration(milliseconds: 100));
-        m.onNetworkAvailable(since: clock.now());
+        m.onNetworkAvailable();
         async.flushMicrotasks();
         expect(host.count('startSession'), 2);
 
@@ -666,7 +650,7 @@ void main() {
         unawaited(m.onSessionJoined());
         async.flushMicrotasks();
 
-        m.onNetworkAvailable(since: clock.now());
+        m.onNetworkAvailable();
         async.flushMicrotasks();
         expect(host.count('startSession'), 2);
 
@@ -687,7 +671,7 @@ void main() {
         expect(host.events.whereType<Reconnected>(), isEmpty);
         expect(m.isReconnecting, isTrue);
 
-        m.onNetworkAvailable(since: clock.now());
+        m.onNetworkAvailable();
         async.flushMicrotasks();
         expect(host.count('startSession'), 2);
       });
@@ -713,7 +697,7 @@ void main() {
         expect(host.count('releaseQueue'), 0);
         expect(m.isReconnecting, isTrue);
 
-        m.onNetworkAvailable(since: clock.now());
+        m.onNetworkAvailable();
         async.flushMicrotasks();
         expect(host.count('startSession'), 2);
       });
@@ -743,7 +727,7 @@ void main() {
           ..onRetryableLoss(_loss, snapshot())
           ..onNetworkLost();
         async.elapse(const Duration(seconds: 5));
-        m.onNetworkAvailable(since: clock.now());
+        m.onNetworkAvailable();
         async.elapse(const Duration(seconds: 30));
         expect(host.events.whereType<ReconnectionFailed>(), isEmpty);
       });
@@ -756,7 +740,7 @@ void main() {
         // A network that keeps changing restarts the budget every time.
         for (var i = 0; i < 6; i++) {
           async.elapse(const Duration(seconds: 1));
-          m.onNetworkAvailable(since: clock.now());
+          m.onNetworkAvailable();
           async.flushMicrotasks();
           m.onRetryableLoss(_loss, snapshot());
         }
@@ -770,14 +754,14 @@ void main() {
       fakeAsync((async) {
         final m = manager()
           ..onNetworkLost()
-          ..onNetworkAvailable(since: clock.now());
+          ..onNetworkAvailable();
         async.elapse(const Duration(seconds: 5));
         expect(host.calls, isEmpty);
 
         m
           ..onRetryableLoss(_loss, snapshot())
           ..reset()
-          ..onNetworkAvailable(since: clock.now());
+          ..onNetworkAvailable();
         async.elapse(const Duration(seconds: 5));
         expect(host.count('startSession'), 0);
       });

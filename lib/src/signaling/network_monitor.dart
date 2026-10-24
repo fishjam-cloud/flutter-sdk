@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:clock/clock.dart';
 import 'package:fishjam_client/src/logger.dart';
 
 /// The device's networks as the OS reports them. Signaling depends only on
@@ -27,7 +26,7 @@ enum NetworkChange {
 
 /// Turns [NetworkMonitor] reports into [NetworkChange]s (SPEC §6.1): the
 /// first value is the baseline, and every report is compared with the one
-/// before it as it arrives; each change carries the time of its report.
+/// before it as it arrives.
 /// When the OS cannot be asked, it logs a warning and reports nothing.
 class NetworkWatcher {
   NetworkWatcher({
@@ -38,7 +37,7 @@ class NetworkWatcher {
 
   final NetworkMonitor _monitor;
   final FishjamLogger _logger;
-  final void Function(NetworkChange change, DateTime began) _onChanged;
+  final void Function(NetworkChange change) _onChanged;
 
   StreamSubscription<Set<String>>? _subscription;
 
@@ -84,7 +83,7 @@ class NetworkWatcher {
   void _onReport(Set<String> networks) {
     final change = _classify(_last!, networks);
     _last = networks;
-    if (change != null) _onChanged(change, clock.now());
+    if (change != null) _onChanged(change);
   }
 
   static NetworkChange? _classify(Set<String> last, Set<String> now) {

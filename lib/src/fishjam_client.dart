@@ -450,7 +450,7 @@ class FishjamClient {
 
   /// Losing the network, or the one in use, while joined is a loss: the
   /// socket and the peer connection are bound to the network that went away.
-  void _onNetworkChanged(NetworkChange change, DateTime began) {
+  void _onNetworkChanged(NetworkChange change) {
     _logger.debug('Network ${change.name}');
     if (!reconnect.isEnabled) return;
     if (_status == ConnectionStatus.joined &&
@@ -462,7 +462,7 @@ class FishjamClient {
     if (change == NetworkChange.lost) {
       _reconnect.onNetworkLost();
     } else {
-      _reconnect.onNetworkAvailable(since: began);
+      _reconnect.onNetworkAvailable();
     }
   }
 

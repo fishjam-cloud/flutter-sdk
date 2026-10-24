@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:clock/clock.dart';
-
 import 'package:fishjam_client/src/models/config.dart';
 import 'package:fishjam_client/src/models/errors.dart';
 import 'package:fishjam_client/src/models/events.dart';
@@ -97,8 +95,8 @@ class ReconnectManager {
   /// a network that keeps changing restarts the budget, so this caps it.
   int _totalAttempts = 0;
 
-  /// When the attempt in progress started; `null` when none is in progress.
-  DateTime? _attemptStartedAt;
+  /// Whether an attempt has started and not yet been lost or joined.
+  bool _attemptInProgress = false;
 
   /// While offline no attempt starts, and a loss waits for the network
   /// instead of using up the budget.
@@ -142,7 +140,7 @@ class ReconnectManager {
       case ReconnectState.reconnecting:
         if (_timer != null) return true;
         _generation++;
-        _attemptStartedAt = null;
+        _attemptInProgress = false;
         if (!_online) {
           _waitForNetwork();
           return true;
@@ -182,7 +180,7 @@ class ReconnectManager {
     if (!_online) {
       // The session got through just before the network went away; it will
       // not survive.
-      _attemptStartedAt = null;
+      _attemptInProgress = false;
       _waitForNetwork();
       return;
     }
@@ -206,7 +204,7 @@ class ReconnectManager {
       if (!_online) {
         // Nothing reports the loss of this session while it is not yet
         // joined, so it is abandoned like one that joined offline.
-        _attemptStartedAt = null;
+        _attemptInProgress = false;
         _waitForNetwork();
         return;
       }
@@ -225,21 +223,18 @@ class ReconnectManager {
     _waitForNetwork();
   }
 
-  /// The device has a network again, or a different one; the change began
-  /// at [since]. While reconnecting, the attempt budget starts over (earlier
-  /// attempts failed on a network that is gone) and an attempt starts at
-  /// once, unless one that started after [since] is in progress: that one
-  /// already runs on the new network.
-  void onNetworkAvailable({required DateTime since}) {
+  /// The device has a network again, or a different one. While
+  /// reconnecting, the attempt budget starts over (earlier attempts failed on
+  /// a network that is gone) and a new attempt starts at once, superseding
+  /// any in progress.
+  void onNetworkAvailable() {
     _online = true;
     _cancelOfflineTimer();
     if (_state != ReconnectState.reconnecting) return;
     _attempt = 0;
-    final startedAt = _attemptStartedAt;
-    if (startedAt != null && startedAt.isAfter(since)) return;
     if (_totalAttempts >= _maxTotalAttempts) {
       // An attempt still in progress decides; with none, nothing would.
-      if (startedAt == null && _timer == null) _giveUp();
+      if (!_attemptInProgress && _timer == null) _giveUp();
       return;
     }
     _cancelTimer();
@@ -282,7 +277,7 @@ class ReconnectManager {
   void _startAttempt(int attempt) {
     _attempt = attempt;
     _totalAttempts++;
-    _attemptStartedAt = clock.now();
+    _attemptInProgress = true;
     final generation = ++_generation;
     unawaited(
       _host
@@ -315,7 +310,7 @@ class ReconnectManager {
     _snapshot = null;
     _attempt = 0;
     _totalAttempts = 0;
-    _attemptStartedAt = null;
+    _attemptInProgress = false;
     if (release) {
       _host.releaseQueue();
     } else {

@@ -15,7 +15,7 @@ void main() {
         sink: (level, message, {error, stackTrace}) =>
             logs.add('${level.name}: $message'),
       ),
-      onChanged: (_, _) {},
+      onChanged: (_) {},
     );
 
     // Platform channels answer in real time.

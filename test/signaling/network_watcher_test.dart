@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/signaling/network_monitor.dart';
@@ -10,7 +9,7 @@ import '../fakes/fake_network.dart';
 
 void main() {
   late FakeNetworkMonitor monitor;
-  late List<(NetworkChange, DateTime)> changes;
+  late List<NetworkChange> changes;
   late List<String> logs;
   late NetworkWatcher watcher;
 
@@ -25,7 +24,7 @@ void main() {
         sink: (level, message, {error, stackTrace}) =>
             logs.add('${level.name}: $message'),
       ),
-      onChanged: (change, began) => changes.add((change, began)),
+      onChanged: changes.add,
     );
   });
 
@@ -36,8 +35,6 @@ void main() {
     body(async);
   });
 
-  List<NetworkChange> kinds() => [for (final (c, _) in changes) c];
-
   test('the networks in use at start are the baseline, not a change', () {
     run((async) {
       monitor.report({'wifi'});
@@ -47,13 +44,12 @@ void main() {
     });
   });
 
-  test('a report is acted on at once, at the time it arrived', () {
+  test('a report is acted on at once', () {
     run((async) {
-      final began = clock.now();
       monitor.report({'cellular'});
       async.flushMicrotasks();
 
-      expect(changes, [(NetworkChange.changed, began)]);
+      expect(changes, [NetworkChange.changed]);
     });
   });
 
@@ -65,7 +61,7 @@ void main() {
         ..report({'wifi'});
       async.flushMicrotasks();
 
-      expect(kinds(), [NetworkChange.lost, NetworkChange.available]);
+      expect(changes, [NetworkChange.lost, NetworkChange.available]);
     });
   });
 
@@ -78,7 +74,7 @@ void main() {
         ..report({'wifi'});
       async.flushMicrotasks();
 
-      expect(kinds(), [NetworkChange.lost, NetworkChange.available]);
+      expect(changes, [NetworkChange.lost, NetworkChange.available]);
     });
   });
 
@@ -90,7 +86,7 @@ void main() {
 
       monitor.report({'cellular'});
       async.flushMicrotasks();
-      expect(kinds(), [NetworkChange.changed]);
+      expect(changes, [NetworkChange.changed]);
     });
   });
 

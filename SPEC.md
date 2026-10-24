@@ -219,10 +219,9 @@ the session will not survive; reacting at once avoids waiting for a pong timeout
 
 - Watching starts at `connect()` and stops when the client is disconnected. The first value read is the
   baseline. **Online** means at least one network is reported; **offline** means none.
-- Every report is acted on when it arrives, compared with the previous report; each change carries the time
-  its report arrived (when the change **began**). The brief "offline" some platforms report while switching
-  networks is not waited out: no attempt starts while offline, and the network reported after it starts one at
-  once.
+- Every report is acted on when it arrives, compared with the previous report. The brief "offline" some
+  platforms report while switching networks is not waited out: no attempt starts while offline, and the network
+  reported after it starts one at once.
 - Kinds of change:
   - **lost**: now offline;
   - **available**: online after being offline;
@@ -239,7 +238,7 @@ the session will not survive; reacting at once avoids waiting for a pong timeout
 | joined, reconnection disabled | any | nothing: the session ends only when its socket or peer connection does |
 | before the first `Joined` of a `connect()` | any | no loss (the attempt fails or succeeds on its own); whether the device is online is remembered |
 | reconnecting | lost | a scheduled attempt is cancelled; no attempt starts while offline, and a loss while offline waits for the network instead of using up an attempt |
-| reconnecting | available or changed | the attempt budget starts over (`maxAttempts` on the new network). An attempt in progress that started after the change began is kept: it already runs on the new network. Otherwise a scheduled attempt is cancelled, an attempt in progress is abandoned (its session torn down silently) and a new attempt starts at once |
+| reconnecting | available or changed | the attempt budget starts over (`maxAttempts` on the new network). A scheduled attempt is cancelled, an attempt in progress is abandoned (its session torn down silently) and a new attempt starts at once |
 | reconnecting | offline for `offlineTimeout` | as "no attempts left" (§6): `ReconnectionFailed`, then `Disconnected(reconnectionFailed)` |
 
 - A session of a reconnection that reaches `connected` while the device is offline, or goes offline before its
