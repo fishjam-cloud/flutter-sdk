@@ -33,7 +33,7 @@ final class ReconnectConfig {
   final bool addTracksOnReconnect;
 
   /// How long a reconnection waits for the device to get a network before
-  /// it gives up.
+  /// it fails with `ReconnectionFailed`.
   final Duration offlineTimeout;
 
   bool get isEnabled => maxAttempts > 0;

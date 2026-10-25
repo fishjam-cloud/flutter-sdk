@@ -1,8 +1,8 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:fishjam_client/src/signaling/network_monitor.dart';
+import 'package:fishjam_client/src/signaling/network_source.dart';
 
-/// [NetworkMonitor] backed by `connectivity_plus`.
-final class ConnectivityNetworkMonitor implements NetworkMonitor {
+/// [NetworkSource] backed by `connectivity_plus`.
+final class ConnectivityNetworkSource implements NetworkSource {
   @override
   Future<Set<String>> current() async =>
       _kinds(await Connectivity().checkConnectivity());

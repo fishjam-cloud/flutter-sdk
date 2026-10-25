@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus_platform_interface/connectivity_plus_platform_interface.dart';
-import 'package:fishjam_client/src/connectivity_network_monitor.dart';
+import 'package:fishjam_client/src/connectivity_network_source.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakePlatform extends ConnectivityPlatform {
@@ -23,12 +23,12 @@ void main() {
   test('reports the kinds of network in use', () async {
     platform.current = [ConnectivityResult.mobile, ConnectivityResult.vpn];
 
-    expect(await ConnectivityNetworkMonitor().current(), {'mobile', 'vpn'});
+    expect(await ConnectivityNetworkSource().current(), {'mobile', 'vpn'});
   });
 
   test('none is reported as no network', () async {
     final reports = <Set<String>>[];
-    final subscription = ConnectivityNetworkMonitor().changes.listen(
+    final subscription = ConnectivityNetworkSource().changes.listen(
       reports.add,
     );
     addTearDown(subscription.cancel);

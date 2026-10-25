@@ -90,8 +90,7 @@ class RtcEngine {
   List<IceServer> _iceServers = const [];
   RtcPeerConnection? _pc;
 
-  /// The receive transceivers of [_pc]; one engine has one peer connection.
-  late final _receive = ReceiveTransceivers(logger: _logger);
+  late final _receiveTransceivers = ReceiveTransceivers(logger: _logger);
   final _subscriptions = <StreamSubscription<Object?>>[];
   bool _hasRemoteDescription = false;
   final _pendingCandidates = <IceCandidate>[];
@@ -485,7 +484,7 @@ class RtcEngine {
     }
     try {
       final pc = await _ensurePeerConnection();
-      await _receive.sync(pc, offerData.tracksTypes);
+      await _receiveTransceivers.sync(pc, offerData.tracksTypes);
       await _commands.drainBatch();
       final offer = await pc.createOffer().timeout(nativeCallTimeout);
       // Native stacks emit candidates during setLocalDescription, before

@@ -2,23 +2,23 @@ import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:fishjam_client/src/logger.dart';
-import 'package:fishjam_client/src/signaling/network_monitor.dart';
+import 'package:fishjam_client/src/signaling/network_change_detector.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../fakes/fake_network.dart';
 
 void main() {
-  late FakeNetworkMonitor monitor;
+  late FakeNetworkSource source;
   late List<NetworkChange> changes;
   late List<String> logs;
-  late NetworkWatcher watcher;
+  late NetworkChangeDetector detector;
 
   setUp(() {
-    monitor = FakeNetworkMonitor();
+    source = FakeNetworkSource();
     changes = [];
     logs = [];
-    watcher = NetworkWatcher(
-      monitor: monitor,
+    detector = NetworkChangeDetector(
+      source: source,
       logger: FishjamLogger(
         enabled: true,
         sink: (level, message, {error, stackTrace}) =>
@@ -28,16 +28,16 @@ void main() {
     );
   });
 
-  /// Starts the watcher inside [body]'s fake time.
+  /// Starts the detector inside [body]'s fake time.
   void run(void Function(FakeAsync async) body) => fakeAsync((async) {
-    unawaited(watcher.start());
+    unawaited(detector.start());
     async.flushMicrotasks();
     body(async);
   });
 
   test('the networks in use at start are the baseline, not a change', () {
     run((async) {
-      monitor.report({'wifi'});
+      source.report({'wifi'});
       async.flushMicrotasks();
 
       expect(changes, isEmpty);
@@ -46,7 +46,7 @@ void main() {
 
   test('a report is acted on at once', () {
     run((async) {
-      monitor.report({'mobile'});
+      source.report({'mobile'});
       async.flushMicrotasks();
 
       expect(changes, [NetworkChange.changed]);
@@ -56,7 +56,7 @@ void main() {
   test('offline is lost; online after offline is available, even when it '
       'comes right after', () {
     run((async) {
-      monitor
+      source
         ..report({})
         ..report({'wifi'});
       async.flushMicrotasks();
@@ -67,7 +67,7 @@ void main() {
 
   test('a repeated report is no change', () {
     run((async) {
-      monitor
+      source
         ..report({})
         ..report({})
         ..report({'wifi'})
@@ -80,11 +80,11 @@ void main() {
 
   test('only gaining a network is no change; losing one later is', () {
     run((async) {
-      monitor.report({'wifi', 'mobile'});
+      source.report({'wifi', 'mobile'});
       async.flushMicrotasks();
       expect(changes, isEmpty);
 
-      monitor.report({'mobile'});
+      source.report({'mobile'});
       async.flushMicrotasks();
       expect(changes, [NetworkChange.changed]);
     });
@@ -93,15 +93,15 @@ void main() {
   test('reports are listened to only once the start value was read, so an '
       'OS that cannot be asked is never subscribed to', () {
     fakeAsync((async) {
-      final gate = monitor.currentGate = Completer<void>();
-      unawaited(watcher.start());
+      final gate = source.currentGate = Completer<void>();
+      unawaited(detector.start());
       async.flushMicrotasks();
-      expect(monitor.isWatched, isFalse);
+      expect(source.isWatched, isFalse);
 
       gate.complete();
       async.flushMicrotasks();
-      expect(monitor.isWatched, isTrue);
-      monitor.report({'wifi'});
+      expect(source.isWatched, isTrue);
+      source.report({'wifi'});
       async.flushMicrotasks();
       expect(changes, isEmpty);
     });
@@ -110,26 +110,26 @@ void main() {
   test('of two starts in a row only the newer one listens, so stop ends '
       'watching', () {
     fakeAsync((async) {
-      unawaited(watcher.start());
-      unawaited(watcher.start());
+      unawaited(detector.start());
+      unawaited(detector.start());
       async.flushMicrotasks();
-      watcher.stop();
+      detector.stop();
       async.flushMicrotasks();
 
-      expect(monitor.isWatched, isFalse);
+      expect(source.isWatched, isFalse);
     });
   });
 
   test('stop while the start value is read: nothing is listened to', () {
     fakeAsync((async) {
-      final gate = monitor.currentGate = Completer<void>();
-      unawaited(watcher.start());
+      final gate = source.currentGate = Completer<void>();
+      unawaited(detector.start());
       async.flushMicrotasks();
-      watcher.stop();
+      detector.stop();
       gate.complete();
       async.flushMicrotasks();
 
-      expect(monitor.isWatched, isFalse);
+      expect(source.isWatched, isFalse);
     });
   });
 
@@ -137,19 +137,19 @@ void main() {
     'a superseded start whose read fails leaves the newer watch running',
     () {
       fakeAsync((async) {
-        final gate = monitor.currentGate = Completer<void>();
-        unawaited(watcher.start());
+        final gate = source.currentGate = Completer<void>();
+        unawaited(detector.start());
         async.flushMicrotasks();
-        monitor.currentGate = null;
-        unawaited(watcher.start());
+        source.currentGate = null;
+        unawaited(detector.start());
         async.flushMicrotasks();
-        expect(monitor.isWatched, isTrue);
+        expect(source.isWatched, isTrue);
 
-        monitor.currentError = StateError('no answer');
+        source.currentError = StateError('no answer');
         gate.complete();
         async.flushMicrotasks();
 
-        expect(monitor.isWatched, isTrue);
+        expect(source.isWatched, isTrue);
         expect(logs, isEmpty);
       });
     },
@@ -157,10 +157,10 @@ void main() {
 
   test('when the OS cannot be asked, it warns, reports nothing and does not '
       'listen', () {
-    monitor.currentError = StateError('no plugin');
+    source.currentError = StateError('no plugin');
     run((async) {
-      expect(monitor.isWatched, isFalse);
-      monitor.report({'mobile'});
+      expect(source.isWatched, isFalse);
+      source.report({'mobile'});
       async.flushMicrotasks();
 
       expect(changes, isEmpty);
@@ -170,7 +170,7 @@ void main() {
 
   test('when the report stream cannot be opened, it warns and reports '
       'nothing', () {
-    monitor.changesError = StateError('no binding');
+    source.changesError = StateError('no binding');
     run((async) {
       expect(logs, [startsWith('warn')]);
       expect(changes, isEmpty);
@@ -179,24 +179,24 @@ void main() {
 
   test('a failing report stream warns and stops watching', () {
     run((async) {
-      monitor.fail(StateError('channel gone'));
+      source.fail(StateError('channel gone'));
       async.flushMicrotasks();
 
       expect(logs, [startsWith('warn')]);
-      expect(monitor.isWatched, isFalse);
+      expect(source.isWatched, isFalse);
     });
   });
 
   test('stop ends watching; start after stop takes a new baseline', () {
     run((async) {
-      watcher.stop();
+      detector.stop();
       async.flushMicrotasks();
-      expect(monitor.isWatched, isFalse);
+      expect(source.isWatched, isFalse);
 
-      monitor.report({'mobile'});
-      unawaited(watcher.start());
+      source.report({'mobile'});
+      unawaited(detector.start());
       async.flushMicrotasks();
-      monitor.report({'mobile'});
+      source.report({'mobile'});
       async.flushMicrotasks();
       expect(changes, isEmpty);
     });

@@ -1,15 +1,15 @@
-/// Scriptable [NetworkMonitor] for unit tests.
+/// Scriptable [NetworkSource] for unit tests.
 library;
 
 import 'dart:async';
 
-import 'package:fishjam_client/src/signaling/network_monitor.dart';
+import 'package:fishjam_client/src/signaling/network_source.dart';
 
 /// A fake OS network report: the test sets the current networks and pushes
 /// reports.
-class FakeNetworkMonitor implements NetworkMonitor {
+class FakeNetworkSource implements NetworkSource {
   /// Starts with [networks] in use.
-  FakeNetworkMonitor({Set<String> networks = const {'wifi'}})
+  FakeNetworkSource({Set<String> networks = const {'wifi'}})
     : _current = networks;
 
   Set<String> _current;

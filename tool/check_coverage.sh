@@ -13,6 +13,7 @@
 # Never recorded (no executable code):
 #   lib/fishjam_client.dart               exports only
 #   lib/src/version.dart                  constants only
+#   lib/src/signaling/network_source.dart interface only
 set -euo pipefail
 
 LCOV="${1:-coverage/lcov.info}"
@@ -27,7 +28,8 @@ unrecorded=0
 while IFS= read -r file; do
   case "$file" in
     lib/src/proto/* | lib/src/rtc/flutter_webrtc_adapter*.dart | \
-      lib/fishjam_client.dart | lib/src/version.dart) continue ;;
+      lib/fishjam_client.dart | lib/src/version.dart | \
+      lib/src/signaling/network_source.dart) continue ;;
   esac
   if ! grep -qx "SF:$file" "$LCOV"; then
     echo "FAIL: $file has no coverage record; load it from a test" >&2

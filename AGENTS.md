@@ -66,7 +66,7 @@ Run analyze, format and tests before every commit.
 | `lib/src/livestream/` | WHIP/WHEP over plain HTTP, independent of the room connection |
 | `lib/src/models/`, `wire.dart`, `logger.dart`, `version.dart` | public immutable types and shared helpers |
 | `lib/src/fishjam_client.dart`, `lib/src/livestream_api.dart`, `lib/fishjam_client.dart` | the public facade; wiring and type conversion only |
-| `lib/src/connectivity_network_monitor.dart` | the `NetworkMonitor` seam (`signaling/network_monitor.dart`) on `connectivity_plus`; the only file that imports it |
+| `lib/src/connectivity_network_source.dart` | the `NetworkSource` (`signaling/network_source.dart`) on `connectivity_plus`; the only file that imports it |
 | `test/fakes/`, `test/support/`, `test/fixtures/` | fakes, fixture replayer, golden sequences |
 
 ## Testing tools

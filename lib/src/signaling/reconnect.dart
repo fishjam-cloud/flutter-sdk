@@ -35,7 +35,7 @@ abstract interface class ReconnectHost {
   Future<void> startSession(Object? peerMetadata);
 
   /// Tears the session down and emits `Disconnected(reason)`. Called only
-  /// when the manager gives up on its own (`ReconnectionFailed` was emitted
+  /// where no caller waits for a result (`ReconnectionFailed` was emitted
   /// just before): [startSession] threw on the last attempt, the device was
   /// offline for `offlineTimeout`, or the network changed after the total
   /// attempt cap was reached. Later reports about the abandoned session must
@@ -71,8 +71,9 @@ abstract interface class ReconnectHost {
 ///   `Disconnected(reconnectionFailed)` if [state] is
 ///   [ReconnectState.failed], else `Disconnected(connectionLost)`; after a
 ///   terminal close the caller emits the error event and `Disconnected`.
-///   When the manager gives up on its own, it ends the session itself
-///   through [ReconnectHost.endSession] (the cases are listed there).
+///   Where no caller waits for a result (timers, network events), the
+///   manager ends the session itself through [ReconnectHost.endSession] (the
+///   cases are listed there).
 /// - With `addTracksOnReconnect`, only tracks with a live media track are
 ///   re-added. Muted tracks (no media track) and ended tracks are
 ///   not; a failed re-add does not stop the others.
@@ -84,11 +85,11 @@ class ReconnectManager {
 
   ReconnectState _state = ReconnectState.idle;
   ReconnectSnapshot? _snapshot;
-  Timer? _timer;
+  Timer? _nextAttemptTimer;
 
   /// Number of attempts started on the current network in the current
   /// reconnection (the budget of `maxAttempts`).
-  int _attempt = 0;
+  int _attemptsOnThisNetwork = 0;
 
   /// Number of attempts started in the current reconnection on any network:
   /// a network that keeps changing restarts the budget, so this caps it.
@@ -103,7 +104,8 @@ class ReconnectManager {
   /// instead of using up the budget.
   bool _online = true;
 
-  /// Runs while reconnecting offline; gives up at `offlineTimeout`.
+  /// Runs while reconnecting offline; fires [_failAndEndSession] at
+  /// `offlineTimeout`.
   Timer? _offlineTimer;
 
   /// Bumped whenever the current attempt is superseded, so a pending track
@@ -136,18 +138,17 @@ class ReconnectManager {
         }
         return true;
       case ReconnectState.reconnecting:
-        if (_timer != null) return true;
+        if (_nextAttemptTimer != null) return true;
         _generation++;
         _attemptInProgress = false;
-        // Offline, the loss waits for the network (the offline timeout runs
-        // since it went away) instead of using up an attempt.
+        // Offline: wait for the network; do not count an attempt.
         if (!_online) return true;
-        if (_attempt < _config.maxAttempts &&
+        if (_attemptsOnThisNetwork < _config.maxAttempts &&
             _totalAttempts < _maxTotalAttempts) {
           _scheduleNextAttempt();
           return true;
         }
-        _fail();
+        _markFailed();
         return false;
     }
   }
@@ -159,7 +160,7 @@ class ReconnectManager {
     if (_state == ReconnectState.reconnecting) {
       _finish(ReconnectState.failed);
     } else {
-      _cancelTimer();
+      _cancelNextAttemptTimer();
     }
   }
 
@@ -174,8 +175,9 @@ class ReconnectManager {
     if (_state != ReconnectState.reconnecting) return;
     if (_online && _config.addTracksOnReconnect) {
       final generation = _generation;
-      // Started together, so they ride one negotiation cycle and the media
-      // comes back at once. The host reports a failure; the others still go.
+      // Restore all tracks in parallel so they share one renegotiation.
+      // Errors are swallowed here: the host already reports them, and one
+      // failure must not stop the others.
       await Future.wait([
         for (final track in _snapshot!.tracks)
           if (track.rtcTrack?.isLive ?? false)
@@ -184,10 +186,9 @@ class ReconnectManager {
       if (generation != _generation) return;
     }
     if (!_online) {
-      // It got through just before the network went away, or lost it while
-      // restoring: it will not survive, and a network change is no loss while
-      // reconnecting, so the reconnection waits for the network (the offline
-      // timeout runs since it went away).
+      // The device went offline before or during the restore. This session
+      // will not survive, so do not emit `Reconnected`; wait for the network
+      // instead (the offline timeout is already running).
       _attemptInProgress = false;
       return;
     }
@@ -201,24 +202,23 @@ class ReconnectManager {
   void onNetworkLost() {
     _online = false;
     if (_state != ReconnectState.reconnecting) return;
-    _cancelTimer();
+    _cancelNextAttemptTimer();
     _startOfflineTimeout();
   }
 
-  /// The device has a network again, or a different one. While
-  /// reconnecting, the attempt budget starts over (earlier attempts failed on
-  /// a network that is gone) and a new attempt starts at once, superseding
-  /// any in progress.
+  /// The device is online again or switched networks. While reconnecting:
+  /// reset the attempt budget and start a new attempt now.
   void onNetworkAvailable() {
     _online = true;
     _cancelOfflineTimer();
     if (_state != ReconnectState.reconnecting) return;
     if (_totalAttempts >= _maxTotalAttempts) {
-      // An attempt still in progress decides; with none, nothing would.
-      if (!_attemptInProgress) _giveUp();
+      // If an attempt is still running, its result decides; otherwise fail
+      // now.
+      if (!_attemptInProgress) _failAndEndSession();
       return;
     }
-    _cancelTimer();
+    _cancelNextAttemptTimer();
     _startAttempt(1);
   }
 
@@ -232,39 +232,40 @@ class ReconnectManager {
 
   int get _maxTotalAttempts => 3 * _config.maxAttempts;
 
-  /// Gives up after `offlineTimeout` unless [onNetworkAvailable] comes
-  /// first.
+  /// Calls [_failAndEndSession] after `offlineTimeout` unless
+  /// [onNetworkAvailable] comes first.
   void _startOfflineTimeout() {
     _offlineTimer ??= Timer(_config.offlineTimeout, () {
       _offlineTimer = null;
-      _giveUp();
+      _failAndEndSession();
     });
   }
 
-  /// Clears the queue and emits `ReconnectionFailed`; the caller ends the
-  /// session.
-  void _fail() {
+  /// Emits `ReconnectionFailed`. The caller ends the session (used when
+  /// [onRetryableLoss] returns `false`).
+  void _markFailed() {
     _finish(ReconnectState.failed);
     _host.emit(const ReconnectionFailed());
   }
 
-  /// [_fail] when the manager gives up on its own, so it ends the session.
-  void _giveUp() {
-    _fail();
+  /// Emits `ReconnectionFailed` and ends the session. Used where no caller is
+  /// waiting for a result (timers, network events).
+  void _failAndEndSession() {
+    _markFailed();
     _host.endSession(DisconnectReason.reconnectionFailed);
   }
 
   void _scheduleNextAttempt() {
-    final attempt = _attempt + 1;
-    _timer = Timer(_config.delayBeforeAttempt(attempt), () {
-      _timer = null;
+    final attempt = _attemptsOnThisNetwork + 1;
+    _nextAttemptTimer = Timer(_config.delayBeforeAttempt(attempt), () {
+      _nextAttemptTimer = null;
       _startAttempt(attempt);
     });
   }
 
   /// Starts [attempt], superseding any attempt still in progress.
   void _startAttempt(int attempt) {
-    _attempt = attempt;
+    _attemptsOnThisNetwork = attempt;
     _totalAttempts++;
     _attemptInProgress = true;
     final generation = ++_generation;
@@ -292,12 +293,12 @@ class ReconnectManager {
   /// Leaves the current reconnection: cancels the timer, invalidates pending
   /// restores, and releases (success) or clears (otherwise) the queue.
   void _finish(ReconnectState state, {bool release = false}) {
-    _cancelTimer();
+    _cancelNextAttemptTimer();
     _cancelOfflineTimer();
     _generation++;
     _state = state;
     _snapshot = null;
-    _attempt = 0;
+    _attemptsOnThisNetwork = 0;
     _totalAttempts = 0;
     _attemptInProgress = false;
     if (release) {
@@ -307,9 +308,9 @@ class ReconnectManager {
     }
   }
 
-  void _cancelTimer() {
-    _timer?.cancel();
-    _timer = null;
+  void _cancelNextAttemptTimer() {
+    _nextAttemptTimer?.cancel();
+    _nextAttemptTimer = null;
   }
 
   void _cancelOfflineTimer() {

@@ -20,7 +20,9 @@ class ReceiveTransceivers {
   /// Missing transceivers are added video first (SPEC §9).
   static const List<MediaKind> _kinds = [MediaKind.video, MediaKind.audio];
 
-  final _live = <MediaKind, List<String>>{
+  /// Receiver track ids of our receive-only transceivers, per kind. A
+  /// transceiver is identified by its receiver's track id (see the class doc).
+  final _receiverTrackIds = <MediaKind, List<String>>{
     MediaKind.video: [],
     MediaKind.audio: [],
   };
@@ -31,14 +33,22 @@ class ReceiveTransceivers {
     RtcPeerConnection pc,
     server.MediaEvent_OfferData_TrackTypes types,
   ) async {
-    final wanted = {MediaKind.video: types.video, MediaKind.audio: types.audio};
-    // Without an excess there is nothing to stop, and no native
-    // `getTransceivers()` is made.
-    if (_live.entries.any((e) => e.value.length > wanted[e.key]!)) {
-      await _stopExcess(pc, wanted);
+    final wantedCount = {
+      MediaKind.video: types.video,
+      MediaKind.audio: types.audio,
+    };
+    // Skip the native `getTransceivers()` call when nothing needs stopping.
+    if (_receiverTrackIds.entries.any(
+      (e) => e.value.length > wantedCount[e.key]!,
+    )) {
+      await _stopExcess(pc, wantedCount);
     }
     for (final kind in _kinds) {
-      for (var i = _live[kind]!.length; i < wanted[kind]!; i++) {
+      for (
+        var i = _receiverTrackIds[kind]!.length;
+        i < wantedCount[kind]!;
+        i++
+      ) {
         final transceiver = await pc.addTransceiverOfKind(
           kind,
           const TransceiverInit(direction: TransceiverDirection.recvonly),
@@ -51,7 +61,7 @@ class ReceiveTransceivers {
             'track; it is not counted',
           );
         } else {
-          _live[kind]!.add(id);
+          _receiverTrackIds[kind]!.add(id);
         }
       }
     }
@@ -63,26 +73,31 @@ class ReceiveTransceivers {
   /// without a mid.
   Future<void> _stopExcess(
     RtcPeerConnection pc,
-    Map<MediaKind, int> wanted,
+    Map<MediaKind, int> wantedCount,
   ) async {
-    final snapshot = {
+    // One native call. Transceivers without a receiver track are skipped (the
+    // `?` key).
+    final transceiverByTrackId = {
       for (final t in await pc.getTransceivers()) ?t.receiver.track?.id: t,
     };
-    for (final ids in _live.values) {
-      // A recorded transceiver missing from the snapshot is gone already.
-      ids.removeWhere((id) => !snapshot.containsKey(id));
+    for (final ids in _receiverTrackIds.values) {
+      // Forget ids whose transceiver no longer exists (e.g. the server
+      // rejected its media section), so the lookups below cannot fail.
+      ids.removeWhere((id) => !transceiverByTrackId.containsKey(id));
     }
-    for (final negotiated in [false, true]) {
+    for (final stopNegotiated in [false, true]) {
       for (final kind in _kinds) {
-        final ids = _live[kind]!;
-        final excess = ids.length - wanted[kind]!;
+        final ids = _receiverTrackIds[kind]!;
+        final excess = ids.length - wantedCount[kind]!;
         if (excess <= 0) continue;
-        final victims = ids
-            .where((id) => (snapshot[id]!.mid != null) == negotiated)
+        final toStop = ids
+            .where(
+              (id) => (transceiverByTrackId[id]!.mid != null) == stopNegotiated,
+            )
             .take(excess)
             .toList();
-        for (final id in victims) {
-          await snapshot[id]!.stop();
+        for (final id in toStop) {
+          await transceiverByTrackId[id]!.stop();
           ids.remove(id);
         }
       }

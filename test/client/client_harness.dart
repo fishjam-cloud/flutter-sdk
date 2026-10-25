@@ -31,7 +31,7 @@ class ClientHarness {
       reconnect: reconnect,
       rtcAdapter: rtc,
       transportFactory: transports.call,
-      networkMonitor: network,
+      networkSource: network,
       audioOutput: audioOutput,
     );
     _subscription = client.events.listen(events.add);
@@ -41,7 +41,7 @@ class ClientHarness {
   final transports = FakeTransportFactory();
 
   /// The device's networks, as the OS reports them.
-  final network = FakeNetworkMonitor();
+  final network = FakeNetworkSource();
 
   /// The WebRTC fake.
   final FakeRtcAdapter rtc;
