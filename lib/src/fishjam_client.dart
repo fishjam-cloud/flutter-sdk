@@ -426,7 +426,7 @@ class FishjamClient {
         connectError: connectExceptionFor(reason),
       );
     } else if (reason is RetryableClose) {
-      await _onRetryableLoss(reason);
+      _onRetryableLoss(reason);
     } else {
       _reconnect.onTerminalClose(reason);
       await _finish(disconnectedFor(reason), error: errorEventFor(reason));
@@ -437,9 +437,7 @@ class FishjamClient {
   /// (the engine already emitted `ConnectionError`): a retryable loss.
   void _onConnectionFailed(_Session session) {
     if (!_isCurrent(session)) return;
-    unawaited(
-      _onRetryableLoss(const RetryableClose(reason: 'peer connection')),
-    );
+    _onRetryableLoss(const RetryableClose(reason: 'peer connection'));
   }
 
   void _onServerError(_Session session) =>
@@ -474,9 +472,7 @@ class FishjamClient {
     // cancels it.
     if (_status == ConnectionStatus.joined &&
         change != NetworkChange.available) {
-      unawaited(
-        _onRetryableLoss(RetryableClose(reason: 'network ${change.name}')),
-      );
+      _onRetryableLoss(RetryableClose(reason: 'network ${change.name}'));
     }
     if (change == NetworkChange.lost) {
       _reconnect.onNetworkLost();
@@ -485,7 +481,9 @@ class FishjamClient {
     }
   }
 
-  Future<void> _onRetryableLoss(RetryableClose reason) async {
+  /// Decides at once whether to reconnect, so a caller can act on the
+  /// reconnection right after; only ending the session runs on.
+  void _onRetryableLoss(RetryableClose reason) {
     final session = _session!;
     final snapshot = ReconnectSnapshot(
       peerMetadata: session.localTracks.peerMetadata,
@@ -499,9 +497,11 @@ class FishjamClient {
       _status = ConnectionStatus.reconnecting;
       _stats.stop();
     } else if (_reconnect.state == ReconnectState.failed) {
-      await _finish(const Disconnected(DisconnectReason.reconnectionFailed));
+      unawaited(
+        _finish(const Disconnected(DisconnectReason.reconnectionFailed)),
+      );
     } else {
-      await _finish(disconnectedFor(reason));
+      unawaited(_finish(disconnectedFor(reason)));
     }
   }
 
