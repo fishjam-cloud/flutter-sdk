@@ -41,7 +41,8 @@ class NetworkWatcher {
 
   StreamSubscription<Set<String>>? _subscription;
 
-  /// Bumped by [stop], so a [start] still reading the start value gives up.
+  /// Bumped by [stop] (and so by every [start]): a start still reading the
+  /// start value gives up when it is no longer the latest.
   int _runs = 0;
 
   /// The networks of the last report; `null` before the baseline.
@@ -49,35 +50,34 @@ class NetworkWatcher {
 
   /// Starts watching with a new baseline (stops a previous watch first).
   Future<void> start() async {
-    await stop();
+    stop();
     final run = _runs;
     try {
       // Read first: a platform that cannot be asked reports a failed
       // subscription to the framework's error handler, not to the stream.
       final networks = await _monitor.current();
       if (run != _runs) return;
-      _last = networks;
       _subscription = _monitor.changes.listen(
         _onReport,
         onError: (Object e) {
           _logger.warn('Network reports failed; stopped watching them', e);
-          unawaited(stop());
+          stop();
         },
       );
+      _last = networks;
     } on Object catch (e) {
       // A newer start may be watching already; this one only had to give up.
-      if (run != _runs) return;
-      _logger.warn('Cannot read the network state; not watching it', e);
-      await stop();
+      if (run == _runs) {
+        _logger.warn('Cannot read the network state; not watching it', e);
+      }
     }
   }
 
-  Future<void> stop() async {
+  void stop() {
     _runs++;
-    final cancelled = _subscription?.cancel();
+    unawaited(_subscription?.cancel());
     _subscription = null;
     _last = null;
-    await cancelled;
   }
 
   void _onReport(Set<String> networks) {

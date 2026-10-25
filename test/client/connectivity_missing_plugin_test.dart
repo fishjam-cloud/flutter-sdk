@@ -21,7 +21,7 @@ void main() {
     // Platform channels answer in real time.
     await tester.runAsync(() async {
       await watcher.start();
-      await watcher.stop();
+      watcher.stop();
     });
 
     expect(logs, [startsWith('warn')]);

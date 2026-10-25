@@ -524,7 +524,7 @@ class FishjamClient {
     // to fail.
     final connecting = _connecting;
     _connecting = null;
-    unawaited(_network?.stop());
+    _network?.stop();
     await _teardown(session, sendDisconnect: sendDisconnect);
     _setCommunicationMode(on: false);
     if (error != null) _emit(error);

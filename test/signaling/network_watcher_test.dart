@@ -107,12 +107,25 @@ void main() {
     });
   });
 
+  test('of two starts in a row only the newer one listens, so stop ends '
+      'watching', () {
+    fakeAsync((async) {
+      unawaited(watcher.start());
+      unawaited(watcher.start());
+      async.flushMicrotasks();
+      watcher.stop();
+      async.flushMicrotasks();
+
+      expect(monitor.isWatched, isFalse);
+    });
+  });
+
   test('stop while the start value is read: nothing is listened to', () {
     fakeAsync((async) {
       final gate = monitor.currentGate = Completer<void>();
       unawaited(watcher.start());
       async.flushMicrotasks();
-      unawaited(watcher.stop());
+      watcher.stop();
       gate.complete();
       async.flushMicrotasks();
 
@@ -176,7 +189,7 @@ void main() {
 
   test('stop ends watching; start after stop takes a new baseline', () {
     run((async) {
-      unawaited(watcher.stop());
+      watcher.stop();
       async.flushMicrotasks();
       expect(monitor.isWatched, isFalse);
 
