@@ -32,7 +32,7 @@ class NetworkChangeDetector {
   int _generation = 0;
 
   /// `null` until [start] reads the first value.
-  Set<String>? _previousNetworks;
+  Set<String>? _previousNetworkStates;
 
   /// Starts watching with a new baseline (stops a previous watch first).
   Future<void> start() async {
@@ -41,16 +41,16 @@ class NetworkChangeDetector {
     try {
       // Read first: a platform that cannot be asked reports a failed
       // subscription to the framework's error handler, not to the stream.
-      final networks = await _source.current();
+      final networks = await _source.getNetworkTypes();
       if (generation != _generation) return;
-      _subscription = _source.changes.listen(
+      _previousNetworkStates = networks;
+      _subscription = _source.networkTypesChanged.listen(
         _onNetworksReported,
         onError: (Object e) {
           _logger.warn('Network reports failed; stopped watching them', e);
           stop();
         },
       );
-      _previousNetworks = networks;
     } on Object catch (e) {
       if (generation == _generation) {
         _logger.warn('Cannot read the network state; not watching it', e);
@@ -62,12 +62,12 @@ class NetworkChangeDetector {
     _generation++;
     unawaited(_subscription?.cancel());
     _subscription = null;
-    _previousNetworks = null;
+    _previousNetworkStates = null;
   }
 
   void _onNetworksReported(Set<String> networks) {
-    final change = _classifyNetworkChange(_previousNetworks!, networks);
-    _previousNetworks = networks;
+    final change = _classifyNetworkChange(_previousNetworkStates!, networks);
+    _previousNetworkStates = networks;
     if (change != null) _onChanged(change);
   }
 

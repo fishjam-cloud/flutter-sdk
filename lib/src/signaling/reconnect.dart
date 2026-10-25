@@ -175,9 +175,9 @@ class ReconnectManager {
     if (_state != ReconnectState.reconnecting) return;
     if (_online && _config.addTracksOnReconnect) {
       final generation = _generation;
-      // Restore all tracks in parallel so they share one renegotiation.
-      // Errors are swallowed here: the host already reports them, and one
-      // failure must not stop the others.
+      // Start all restores at once so they usually share one renegotiation.
+      // A failed restore is ignored, so the others still run; that track is
+      // not published again and the app gets no `LocalTrackAdded` for it.
       await Future.wait([
         for (final track in _snapshot!.tracks)
           if (track.rtcTrack?.isLive ?? false)

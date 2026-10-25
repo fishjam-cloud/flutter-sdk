@@ -15,30 +15,30 @@ class FakeNetworkSource implements NetworkSource {
   Set<String> _current;
   final _reports = StreamController<Set<String>>.broadcast();
 
-  /// When set, [current] waits for it.
-  Completer<void>? currentGate;
+  /// When set, [getNetworkTypes] waits for it.
+  Completer<void>? getNetworkTypesGate;
 
-  /// When set, [current] throws it.
-  Error? currentError;
+  /// When set, [getNetworkTypes] throws it.
+  Error? getNetworkTypesError;
 
-  /// When set, reading [changes] throws it.
-  Error? changesError;
+  /// When set, reading [networkTypesChanged] throws it.
+  Error? networkTypesChangedError;
 
-  /// Whether anyone listens to [changes].
+  /// Whether anyone listens to [networkTypesChanged].
   bool get isWatched => _reports.hasListener;
 
   @override
-  Future<Set<String>> current() async {
-    final gate = currentGate;
+  Future<Set<String>> getNetworkTypes() async {
+    final gate = getNetworkTypesGate;
     if (gate != null) await gate.future;
-    final error = currentError;
+    final error = getNetworkTypesError;
     if (error != null) throw error;
     return _current;
   }
 
   @override
-  Stream<Set<String>> get changes {
-    final error = changesError;
+  Stream<Set<String>> get networkTypesChanged {
+    final error = networkTypesChangedError;
     if (error != null) throw error;
     return _reports.stream;
   }

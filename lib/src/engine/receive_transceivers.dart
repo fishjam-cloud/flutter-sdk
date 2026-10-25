@@ -75,8 +75,6 @@ class ReceiveTransceivers {
     RtcPeerConnection pc,
     Map<MediaKind, int> wantedCount,
   ) async {
-    // One native call. Transceivers without a receiver track are skipped (the
-    // `?` key).
     final transceiverByTrackId = {
       for (final t in await pc.getTransceivers()) ?t.receiver.track?.id: t,
     };

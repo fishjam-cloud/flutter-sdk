@@ -23,12 +23,15 @@ void main() {
   test('reports the kinds of network in use', () async {
     platform.current = [ConnectivityResult.mobile, ConnectivityResult.vpn];
 
-    expect(await ConnectivityNetworkSource().current(), {'mobile', 'vpn'});
+    expect(await ConnectivityNetworkSource().getNetworkTypes(), {
+      'mobile',
+      'vpn',
+    });
   });
 
   test('none is reported as no network', () async {
     final reports = <Set<String>>[];
-    final subscription = ConnectivityNetworkSource().changes.listen(
+    final subscription = ConnectivityNetworkSource().networkTypesChanged.listen(
       reports.add,
     );
     addTearDown(subscription.cancel);

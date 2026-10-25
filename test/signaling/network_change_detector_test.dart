@@ -93,7 +93,7 @@ void main() {
   test('reports are listened to only once the start value was read, so an '
       'OS that cannot be asked is never subscribed to', () {
     fakeAsync((async) {
-      final gate = source.currentGate = Completer<void>();
+      final gate = source.getNetworkTypesGate = Completer<void>();
       unawaited(detector.start());
       async.flushMicrotasks();
       expect(source.isWatched, isFalse);
@@ -122,7 +122,7 @@ void main() {
 
   test('stop while the start value is read: nothing is listened to', () {
     fakeAsync((async) {
-      final gate = source.currentGate = Completer<void>();
+      final gate = source.getNetworkTypesGate = Completer<void>();
       unawaited(detector.start());
       async.flushMicrotasks();
       detector.stop();
@@ -137,15 +137,15 @@ void main() {
     'a superseded start whose read fails leaves the newer watch running',
     () {
       fakeAsync((async) {
-        final gate = source.currentGate = Completer<void>();
+        final gate = source.getNetworkTypesGate = Completer<void>();
         unawaited(detector.start());
         async.flushMicrotasks();
-        source.currentGate = null;
+        source.getNetworkTypesGate = null;
         unawaited(detector.start());
         async.flushMicrotasks();
         expect(source.isWatched, isTrue);
 
-        source.currentError = StateError('no answer');
+        source.getNetworkTypesError = StateError('no answer');
         gate.complete();
         async.flushMicrotasks();
 
@@ -157,7 +157,7 @@ void main() {
 
   test('when the OS cannot be asked, it warns, reports nothing and does not '
       'listen', () {
-    source.currentError = StateError('no plugin');
+    source.getNetworkTypesError = StateError('no plugin');
     run((async) {
       expect(source.isWatched, isFalse);
       source.report({'mobile'});
@@ -170,7 +170,7 @@ void main() {
 
   test('when the report stream cannot be opened, it warns and reports '
       'nothing', () {
-    source.changesError = StateError('no binding');
+    source.networkTypesChangedError = StateError('no binding');
     run((async) {
       expect(logs, [startsWith('warn')]);
       expect(changes, isEmpty);
