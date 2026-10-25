@@ -15,14 +15,11 @@ void main() {
   group('transceivers', () {
     test('model flutter_webrtc on Android: a lookup by mid disposes the '
         'handles of transceivers without a mid', () async {
-      final pc = FakePeerConnection(const RtcConfiguration());
       await pc.addTransceiverOfKind(
         MediaKind.audio,
         const TransceiverInit(direction: TransceiverDirection.recvonly),
       );
-      await pc.setLocalDescription(
-        const SessionDescription(type: SdpType.offer, sdp: 'v=0'),
-      );
+      await pc.setLocalDescription(await pc.createOffer());
       await pc.addTransceiverOfKind(
         MediaKind.video,
         const TransceiverInit(direction: TransceiverDirection.recvonly),
@@ -31,9 +28,7 @@ void main() {
       expect(negotiated.mid, isNotNull);
       expect(fresh.mid, isNull);
 
-      await fresh.getDirection();
-      await negotiated.getDirection();
-      await expectLater(fresh.getDirection(), throwsStateError);
+      await negotiated.stop();
       await expectLater(fresh.stop(), throwsStateError);
     });
 
@@ -81,8 +76,10 @@ void main() {
           const SessionDescription(type: SdpType.answer, sdp: 'answer'),
         );
 
-        final t = (await pc.getTransceivers()).single;
-        expect(await t.getCurrentDirection(), TransceiverDirection.recvonly);
+        expect(
+          pc.transceiverStates.single.currentDirection,
+          TransceiverDirection.recvonly,
+        );
         expect(pc.signalingState, SignalingState.stable);
         expect(pc.remoteDescription?.sdp, 'answer');
         await Future<void>.delayed(Duration.zero);
@@ -98,9 +95,9 @@ void main() {
 
       await t.stop();
 
-      final fresh = (await pc.getTransceivers()).single;
-      expect(await fresh.getDirection(), TransceiverDirection.stopped);
-      expect(await fresh.getCurrentDirection(), TransceiverDirection.stopped);
+      final state = pc.transceiverStates.single;
+      expect(state.isStopped, isTrue);
+      expect(state.currentDirection, TransceiverDirection.stopped);
       expect(pc.calls.last.method, 'stopTransceiver');
     });
 
@@ -116,7 +113,10 @@ void main() {
 
         final fresh = (await pc.getTransceivers()).single;
         expect(fresh.sender.track, isNull);
-        expect(await fresh.getDirection(), TransceiverDirection.inactive);
+        expect(
+          pc.transceiverStates.single.direction,
+          TransceiverDirection.inactive,
+        );
         expect((await pc.getSenders()).single.track, isNull);
       },
     );

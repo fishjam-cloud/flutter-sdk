@@ -99,11 +99,6 @@ abstract interface class RtcRtpTransceiver {
   /// Media id; `null` until a local description was applied.
   String? get mid;
 
-  Future<TransceiverDirection> getDirection();
-
-  /// Negotiated direction; `null` before the first negotiation.
-  Future<TransceiverDirection?> getCurrentDirection();
-
   RtcRtpSender get sender;
 
   RtcRtpReceiver get receiver;

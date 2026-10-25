@@ -154,8 +154,8 @@ class FakeTransceiverState {
 ///
 /// Models how `flutter_webrtc` reaches native transceivers on Android: a view
 /// without a mid holds a native handle that the next native
-/// `getTransceivers()` disposes, and a call on a view with a mid makes that
-/// call itself (it looks the transceiver up by mid). A call on a disposed
+/// `getTransceivers()` disposes, and [stop] on a view with a mid makes that
+/// call itself (it looks the transceiver up by mid). [stop] on a disposed
 /// handle throws.
 class FakeRtpTransceiver implements RtcRtpTransceiver {
   FakeRtpTransceiver._(this.state, this._pc)
@@ -177,18 +177,6 @@ class FakeRtpTransceiver implements RtcRtpTransceiver {
     } else if (_handleGeneration != _pc._handleGeneration) {
       throw StateError('RtpTransceiver has been disposed.');
     }
-  }
-
-  @override
-  Future<TransceiverDirection> getDirection() async {
-    _resolve();
-    return state.direction;
-  }
-
-  @override
-  Future<TransceiverDirection?> getCurrentDirection() async {
-    _resolve();
-    return state.currentDirection;
   }
 
   @override
