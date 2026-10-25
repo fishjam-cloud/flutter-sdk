@@ -254,15 +254,17 @@ class FakeRtpSender implements RtcRtpSender {
   Future<List<RtcStats>> getStats() async => stats;
 }
 
-/// A fake receiver; it always has a remote track of its kind.
+/// A fake receiver; it has a remote track of its kind unless created while
+/// [FakePeerConnection.receiversWithoutTrack] was set.
 class FakeRtpReceiver implements RtcRtpReceiver {
-  FakeRtpReceiver._(this.kind) : track = FakeMediaTrack(kind: kind);
+  FakeRtpReceiver._(this.kind, {required bool withTrack})
+    : track = withTrack ? FakeMediaTrack(kind: kind) : null;
 
   @override
   final MediaKind kind;
 
   @override
-  final RtcMediaTrack track;
+  final RtcMediaTrack? track;
 }
 
 /// A fake data channel.
@@ -349,6 +351,9 @@ class FakePeerConnection implements RtcPeerConnection {
 
   /// Whether [close] was called.
   bool isClosed = false;
+
+  /// Transceivers added while set get a receiver without a track.
+  bool receiversWithoutTrack = false;
 
   final List<FakeTransceiverState> _transceivers = [];
 
@@ -493,7 +498,7 @@ class FakePeerConnection implements RtcPeerConnection {
         track,
         init.sendEncodings.isEmpty ? const [RtpEncoding()] : init.sendEncodings,
       ),
-      receiver: FakeRtpReceiver._(kind),
+      receiver: FakeRtpReceiver._(kind, withTrack: !receiversWithoutTrack),
     );
     _transceivers.add(state);
     return FakeRtpTransceiver._(state, this);

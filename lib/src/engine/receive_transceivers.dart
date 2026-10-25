@@ -1,3 +1,4 @@
+import 'package:fishjam_client/src/logger.dart';
 import 'package:fishjam_client/src/proto/fishjam/media_events/server/server.pb.dart'
     as server;
 import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
@@ -12,6 +13,10 @@ import 'package:fishjam_client/src/rtc/rtc_adapter.dart';
 /// transceiver disposes the handles of the ones without a mid, and on iOS all
 /// transceivers without a mid share one id.
 class ReceiveTransceivers {
+  ReceiveTransceivers({required this._logger});
+
+  final FishjamLogger _logger;
+
   /// Missing transceivers are added video first (SPEC §9).
   static const List<MediaKind> _kinds = [MediaKind.video, MediaKind.audio];
 
@@ -39,7 +44,15 @@ class ReceiveTransceivers {
           const TransceiverInit(direction: TransceiverDirection.recvonly),
         );
         final id = transceiver.receiver.track?.id;
-        if (id != null) _live[kind]!.add(id);
+        if (id == null) {
+          // Unrecorded, it is added again on the next offerData.
+          _logger.warn(
+            'A ${kind.name} receive transceiver has no receiver '
+            'track; it is not counted',
+          );
+        } else {
+          _live[kind]!.add(id);
+        }
       }
     }
   }

@@ -91,7 +91,7 @@ class RtcEngine {
   RtcPeerConnection? _pc;
 
   /// The receive transceivers of [_pc]; one engine has one peer connection.
-  final _receive = ReceiveTransceivers();
+  late final _receive = ReceiveTransceivers(logger: _logger);
   final _subscriptions = <StreamSubscription<Object?>>[];
   bool _hasRemoteDescription = false;
   final _pendingCandidates = <IceCandidate>[];
