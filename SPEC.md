@@ -39,7 +39,7 @@ Conventions:
 - The server pings every 30 s. The client additionally sends its own pings (interval 15 s) and treats a
   missing pong within one interval as a connection loss (retryable, [§6](#6-reconnection)).
 - Opening the socket (connection, TLS and upgrade) times out after 10 s; a timeout fails like a socket that
-  cannot be opened.
+  cannot be opened. Closing a socket that is still opening aborts the open, which fails the same way.
 
 ### 2.2 Messages
 

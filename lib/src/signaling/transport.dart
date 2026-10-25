@@ -91,6 +91,10 @@ final class WebSocketTransport implements SignalingTransport {
   final FishjamLogger _logger;
 
   WebSocket? _socket;
+
+  /// Opens [_socket]; its own, so that the connect timeout and [close] can
+  /// abort a connect in progress.
+  HttpClient? _client;
   final _incoming = StreamController<Uint8List>();
   final _closed = Completer<TransportClosed>();
 
@@ -105,21 +109,24 @@ final class WebSocketTransport implements SignalingTransport {
 
   @override
   Future<void> connect(Uri url) async {
-    if (_socket != null) throw StateError('A transport can be used once');
-    // Without a limit, a connect started on a network that went away hangs
-    // until the OS gives up, which can take minutes.
-    final client = HttpClient()..connectionTimeout = connectTimeout;
-    final connecting = WebSocket.connect(url.toString(), customClient: client);
+    if (_client != null) throw StateError('A transport can be used once');
+    final client = _client = HttpClient();
     try {
-      _socket = await connecting.timeout(connectTimeout)
-        ..pingInterval = pingInterval;
+      // Without a limit, a connect started on a network that went away hangs
+      // until the OS gives up, which can take minutes.
+      _socket =
+          await WebSocket.connect(
+              url.toString(),
+              customClient: client,
+            ).timeout(connectTimeout)
+            ..pingInterval = pingInterval;
     } on Object catch (e) {
-      if (e is TimeoutException) {
-        client.close(force: true);
-        connecting.ignore();
-      }
       _finish(TransportClosed(error: e));
       throw TransportException('Cannot connect to $url', e);
+    } finally {
+      // Aborts a connect that timed out; an open socket no longer belongs to
+      // the client.
+      client.close(force: true);
     }
     _socket!.listen(
       (data) {
@@ -148,6 +155,9 @@ final class WebSocketTransport implements SignalingTransport {
   Future<void> close([int code = 1000, String? reason]) async {
     final socket = _socket;
     if (socket == null) {
+      // A connect in progress fails at once instead of opening a socket
+      // nobody uses.
+      _client?.close(force: true);
       _finish(TransportClosed(code: code, reason: reason));
       return;
     }
