@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fishjam_client/fishjam_client.dart';
 import 'package:fishjam_client/src/proto/fishjam/media_events/server/server.pb.dart'
     as server;
@@ -60,6 +62,31 @@ void main() {
       );
       await settle();
       expect(calls, ['enterCommunicationMode', 'exitCommunicationMode']);
+    });
+
+    test('a connect() made while the previous session is torn down opens '
+        'after it, so the mode is exited and entered again', () async {
+      await h.join();
+      final gate = h.transport.closeGate = Completer<void>();
+      final leaving = h.client.leave();
+      await settle();
+      final connecting = h.client.connect(url: 'ws://f', token: 't');
+      await settle();
+      expect(h.transport.isOpen, isFalse);
+
+      gate.complete();
+      await leaving;
+      await settle();
+      await h.rejoin();
+      await connecting;
+
+      expect(calls, [
+        'enterCommunicationMode',
+        'exitCommunicationMode',
+        'enterCommunicationMode',
+      ]);
+      expect(h.events.whereType<Disconnected>(), hasLength(1));
+      expect(h.events.last, isA<Joined>());
     });
 
     test('never entered when connect() fails before Joined', () async {

@@ -96,6 +96,9 @@ const _config = ReconnectConfig(
   addTracksOnReconnect: false,
 );
 
+// The SDK defaults: tracks are restored.
+const _restoring = ReconnectConfig();
+
 void main() {
   late _Host host;
 
@@ -252,13 +255,7 @@ void main() {
         async.flushMicrotasks();
 
         expect(host.restored, isEmpty);
-        // Every old track id is reported removed, before Reconnected.
-        expect(
-          host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
-          ['t1'],
-        );
-        expect(host.calls.sublist(host.calls.length - 3), [
-          'emit:LocalTrackRemoved',
+        expect(host.calls.sublist(host.calls.length - 2), [
           'releaseQueue',
           'emit:Reconnected',
         ]);
@@ -270,7 +267,7 @@ void main() {
         'Reconnected', () {
       fakeAsync((async) {
         final ended = FakeMediaTrack.video()..end();
-        final m = manager(const ReconnectConfig())
+        final m = manager(_restoring)
           ..onRetryableLoss(
             _loss,
             snapshot(
@@ -313,19 +310,6 @@ void main() {
           'restoreTrack:mic',
         ]);
         expect(host.restored, unorderedEquals(['cam', 'mic']));
-        // Every old track id is reported removed, in order, before the
-        // first restore (restored tracks get new ids).
-        expect(
-          host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
-          ['cam', 'ended', 'muted', 'broken', 'mic'],
-        );
-        final firstRestore = host.calls.indexOf('restoreTrack:cam');
-        expect(
-          host.calls
-              .sublist(0, firstRestore)
-              .where((c) => c == 'emit:LocalTrackRemoved'),
-          hasLength(5),
-        );
         expect(host.calls.sublist(host.calls.length - 2), [
           'releaseQueue',
           'emit:Reconnected',
@@ -337,7 +321,7 @@ void main() {
     test('a loss during restoration cancels Reconnected and schedules the '
         'next attempt', () {
       fakeAsync((async) {
-        final m = manager(const ReconnectConfig())
+        final m = manager(_restoring)
           ..onRetryableLoss(
             _loss,
             snapshot(
@@ -364,14 +348,9 @@ void main() {
         async.elapse(const Duration(milliseconds: 1000));
         expect(host.count('startSession'), 2);
 
-        // The next attempt restores the snapshot again, but the old ids
-        // were already reported removed.
+        // The next attempt restores the snapshot again.
         unawaited(m.onSessionJoined());
         async.flushMicrotasks();
-        expect(
-          host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
-          ['cam', 'mic'],
-        );
         expect(host.count('restoreTrack:cam'), 2);
         expect(host.count('emit:Reconnected'), 1);
       });
@@ -401,7 +380,7 @@ void main() {
 
     test('a terminal close during restoration prevents Reconnected', () {
       fakeAsync((async) {
-        final m = manager(const ReconnectConfig())
+        final m = manager(_restoring)
           ..onRetryableLoss(
             _loss,
             snapshot(tracks: [_track('cam', media: FakeMediaTrack.video())]),
@@ -616,8 +595,8 @@ void main() {
       });
     });
 
-    test('an attempt in progress is abandoned; its '
-        'late start error is ignored', () {
+    test('a new network abandons the attempt in progress; its late start '
+        'error is ignored', () {
       fakeAsync((async) {
         final gate = host.startGate = Completer<void>();
         host.failingStarts = 1;
@@ -625,7 +604,6 @@ void main() {
         async.elapse(const Duration(milliseconds: 500));
         expect(host.count('startSession'), 1);
 
-        async.elapse(const Duration(milliseconds: 100));
         m.onNetworkAvailable();
         async.flushMicrotasks();
         expect(host.count('startSession'), 2);
@@ -641,7 +619,7 @@ void main() {
         'and cancels Reconnected', () {
       fakeAsync((async) {
         final pending = host.pendingRestores['t1'] = Completer<void>();
-        final m = manager(const ReconnectConfig())
+        final m = manager(_restoring)
           ..onRetryableLoss(
             _loss,
             snapshot(tracks: [_track('t1', media: FakeMediaTrack.video())]),
@@ -681,7 +659,7 @@ void main() {
         'complete the reconnection; the network back starts a new attempt', () {
       fakeAsync((async) {
         final pending = host.pendingRestores['t1'] = Completer<void>();
-        final m = manager(const ReconnectConfig())
+        final m = manager(_restoring)
           ..onRetryableLoss(
             _loss,
             snapshot(tracks: [_track('t1', media: FakeMediaTrack.video())]),

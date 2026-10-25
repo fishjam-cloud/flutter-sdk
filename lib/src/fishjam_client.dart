@@ -75,7 +75,8 @@ class FishjamClient {
   }) : _adapter = rtcAdapter ?? const FlutterWebrtcAdapter(),
        _logger = FishjamLogger(enabled: debug) {
     _reconnect = ReconnectManager(config: reconnect, host: _Host(this));
-    if (networkMonitor != null) {
+    // Network changes matter only to reconnection.
+    if (networkMonitor != null && reconnect.isEnabled) {
       _network = NetworkWatcher(
         monitor: networkMonitor,
         logger: _logger,
@@ -130,6 +131,10 @@ class FishjamClient {
 
   /// Settles the pending `connect()` call exactly once.
   Completer<void>? _connecting;
+
+  /// Completes when the teardown of the session given up last has finished
+  /// (its `Disconnected` was emitted); never fails.
+  Future<void> _ending = Future<void>.value();
   String _url = '';
   String _token = '';
   bool _disposed = false;
@@ -174,13 +179,20 @@ class FishjamClient {
     _status = ConnectionStatus.connecting;
     unawaited(_network?.start());
     final connecting = _connecting = Completer<void>();
-    final session = _newSession();
+    unawaited(_openAfterEnding(_newSession(), peerMetadata));
+    return await connecting.future;
+  }
+
+  /// Opens [session] once the session given up before it has ended (e.g.
+  /// when connect() is called from a `ReconnectionFailed` listener), so that
+  /// session's `Disconnected` and audio mode change come first.
+  Future<void> _openAfterEnding(_Session session, Object? peerMetadata) async {
     try {
-      await _open(session, peerMetadata);
+      await _ending;
+      if (_isCurrent(session)) await _open(session, peerMetadata);
     } on Object {
       // Reported through `closed`, which settles connect().
     }
-    return await connecting.future;
   }
 
   /// Leaves the room gracefully. A no-op when not connected.
@@ -384,6 +396,11 @@ class FishjamClient {
     // While reconnecting, the status turns `joined` with `Reconnected`.
     if (!_reconnect.isReconnecting) _status = ConnectionStatus.joined;
     _emit(joined);
+    // Every local track the app was told about belongs to a lost session (the
+    // set starts empty at connect()) and went away with it.
+    for (final trackId in _announcedLocalTracks.toList()) {
+      _emit(LocalTrackRemoved(trackId));
+    }
     _stats.start();
     _setCommunicationMode(on: true);
     final connecting = _connecting;
@@ -452,7 +469,9 @@ class FishjamClient {
   /// socket and the peer connection are bound to the network that went away.
   void _onNetworkChanged(NetworkChange change) {
     _logger.debug('Network ${change.name}');
-    if (!reconnect.isEnabled) return;
+    // The loss comes first, so the change below acts on the reconnection it
+    // starts: a new network starts the first attempt at once, and offline
+    // cancels it.
     if (_status == ConnectionStatus.joined &&
         change != NetworkChange.available) {
       unawaited(
@@ -525,10 +544,16 @@ class FishjamClient {
     final connecting = _connecting;
     _connecting = null;
     _network?.stop();
-    await _teardown(session, sendDisconnect: sendDisconnect);
-    _setCommunicationMode(on: false);
-    if (error != null) _emit(error);
-    _emit(disconnected);
+    final ended = Completer<void>();
+    _ending = ended.future;
+    try {
+      await _teardown(session, sendDisconnect: sendDisconnect);
+      _setCommunicationMode(on: false);
+      if (error != null) _emit(error);
+      _emit(disconnected);
+    } finally {
+      ended.complete();
+    }
     if (connecting != null && !connecting.isCompleted) {
       connecting.completeError(
         connectError ??
@@ -665,9 +690,6 @@ class _Session {
   /// Whether `Joined` was emitted for this session.
   bool isJoined = false;
 
-  /// Whether the session was started by a reconnection attempt.
-  bool isReconnectAttempt = false;
-
   /// Whether a reconnection replaces this session; it reports nothing more.
   bool isLost = false;
 
@@ -684,22 +706,13 @@ class _Host implements ReconnectHost {
   @override
   Future<void> startSession(Object? peerMetadata) async {
     final old = _client._session;
-    // Without a reported loss (an attempt replaced after its `Joined`) this is
-    // where it is given up.
-    if (old != null) _client._abandon(old);
     // The new session becomes current first, so the old one is torn down
     // silently (no `Disconnected`) and its late reports are ignored.
-    final session = _client._newSession()..isReconnectAttempt = true;
+    final session = _client._newSession();
     if (old != null) {
-      // Tracks a previous attempt restored were announced with
-      // `LocalTrackAdded`; they go away with that session.
-      if (old.isReconnectAttempt) {
-        for (final track in old.localTracks.tracks) {
-          if (_client._announcedLocalTracks.contains(track.trackId)) {
-            _client._emit(LocalTrackRemoved(track.trackId));
-          }
-        }
-      }
+      // Without a loss of its own (an attempt replaced after its `Joined`),
+      // this is where it is given up.
+      _client._abandon(old);
       // A socket on a network that went away can take seconds to close
       // (the close handshake never completes); the new session does not
       // need it gone.
@@ -740,12 +753,7 @@ class _Host implements ReconnectHost {
 
   @override
   void emit(FishjamEvent event) {
-    if (event is Reconnected) {
-      _client._status = ConnectionStatus.joined;
-      // Its tracks are now the snapshot of the next reconnection, which
-      // reports them removed itself.
-      _client._session?.isReconnectAttempt = false;
-    }
+    if (event is Reconnected) _client._status = ConnectionStatus.joined;
     _client._emit(event);
   }
 }

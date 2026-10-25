@@ -31,10 +31,9 @@ class _RemoteVideo {
 }
 
 class _RoomScreenState extends State<RoomScreen> {
-  // Tracks are published again after a reconnection (with new ids).
-  final _client = FishjamClient(
-    reconnect: const ReconnectConfig(addTracksOnReconnect: true),
-  );
+  // Tracks are published again after a reconnection, with new ids
+  // (`ReconnectConfig.addTracksOnReconnect`, on by default).
+  final _client = FishjamClient();
   final _localRenderer = RTCVideoRenderer();
   final _remote = <String, _RemoteVideo>{};
   final _subscriptions = <StreamSubscription<Object?>>[];

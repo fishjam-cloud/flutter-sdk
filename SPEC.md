@@ -111,8 +111,10 @@ idle ──connect()──▶ connecting ──authenticated──▶ authentica
    Reconnection is **not** attempted for failures before the first `Joined`.
 6. Calling `connect()` while not `idle`/`disconnected` throws `StateError`. The status is `disconnected`
    from the moment a session is given up, so `connect()` may be called from a listener of an event emitted
-   then (e.g. `ReconnectionFailed`); the teardown of the given-up session settles only the `connect()` call
-   that started it.
+   then (e.g. `ReconnectionFailed`) or without awaiting `leave()`. Such a call opens its socket only once the
+   given-up session is torn down and its `Disconnected` emitted, so nothing of the old session (events, the
+   audio mode of [§20b](#20b-audio-output-routing)) lands in the new one. That teardown settles only the
+   `connect()` call that started it.
 
 ### 3.3 `leave()`
 
@@ -186,7 +188,7 @@ States: `idle`, `reconnecting`, `failed`.
 | reconnecting | retryable loss in the new session before `connected` (including a new session that cannot be started at all) | schedule next attempt if attempts remain | reconnecting |
 | reconnecting | retryable loss, no attempts left | clear queue; emit `ReconnectionFailed`, then `Disconnected(DisconnectReason.reconnectionFailed)` | failed |
 | reconnecting | terminal close (auth/join/session ended/protocol) | cancel timer; clear queue; emit the matching error event and `Disconnected` | failed |
-| reconnecting | `connected` | emit `TrackRemoved` for every remote track and then `PeerLeft` / `ComponentRemoved` for every remote endpoint the app was told about by the lost session; emit `Joined` (its snapshot is the source of truth); emit `LocalTrackRemoved(oldTrackId)` for every snapshotted track (once per reconnection, also without `addTracksOnReconnect`); if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks), all at once and in snapshot order, so they ride one negotiation cycle ([§8.3](#83-command-queue)); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
+| reconnecting | `connected` | emit `TrackRemoved` for every remote track and then `PeerLeft` / `ComponentRemoved` for every remote endpoint the app was told about by the lost session; emit `Joined` (its snapshot is the source of truth); emit `LocalTrackRemoved` for every local track id the app was told about by the lost sessions (also without `addTracksOnReconnect`); if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks), all at once and in snapshot order, so they ride one negotiation cycle ([§8.3](#83-command-queue)); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
 | any | `leave()` | cancel timer; clear queue | idle |
 
 - Delay of attempt `n` (1-based) is `initialDelay + (n - 1) * delay`.
@@ -200,10 +202,10 @@ States: `idle`, `reconnecting`, `failed`.
 - An attempt replaced after its `Joined` without a loss of its own (it joined while offline, or a new network
   appeared while its tracks were restored, [§6.1](#61-network-changes)) counts as lost too: the remote
   endpoints it announced are reported gone before the next `Joined`.
-- Every local track id of the lost session ends with `LocalTrackRemoved`: the tracks went away with the
-  session. A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it after the removals.
-  If an attempt that already re-added tracks is lost before `Reconnected`, those new ids are reported
-  removed when the next attempt starts.
+- Every local track id of a lost session ends with `LocalTrackRemoved` right after the next `Joined` (or with
+  the `Disconnected` that ends a failed reconnection): the tracks went away with the session. This includes
+  the new ids of tracks an attempt re-added before it was lost. A re-added track gets a **new** track id;
+  `LocalTrackAdded` is emitted for it after the removals.
 - Only tracks the app got `LocalTrackAdded` for (and no `LocalTrackRemoved` yet) are snapshotted, reported
   removed and re-added. A track whose `addTrack` was still negotiating when the session was lost is not: its
   `addTrack` fails, so the app never learned its id and does not expect it published. Neither is a track an
@@ -217,8 +219,9 @@ The client watches the kinds of network the device uses (Wi-Fi, cellular, ethern
 reports them. A socket and a peer connection are bound to the network they were opened on, so losing it means
 the session will not survive; reacting at once avoids waiting for a pong timeout or an ICE failure.
 
-- Watching starts at `connect()` and stops when the client is disconnected. The first value read is the
-  baseline. **Online** means at least one network is reported; **offline** means none.
+- With reconnection enabled, watching starts at `connect()` and stops when the client is disconnected; with
+  reconnection disabled the network is not watched. The first value read is the baseline. **Online** means at
+  least one network is reported; **offline** means none.
 - Every report is acted on when it arrives, compared with the previous report. The brief "offline" some
   platforms report while switching networks is not waited out: no attempt starts while offline, and the network
   reported after it starts one at once.
@@ -235,7 +238,6 @@ the session will not survive; reacting at once avoids waiting for a pong timeout
 |---|---|---|
 | joined, reconnection enabled | changed | retryable loss `network changed` (§6), without waiting for the socket or ICE to fail |
 | joined, reconnection enabled | lost | retryable loss `network lost` (§6) |
-| joined, reconnection disabled | any | nothing: the session ends only when its socket or peer connection does |
 | before the first `Joined` of a `connect()` | any | no loss (the attempt fails or succeeds on its own); whether the device is online is remembered |
 | reconnecting | lost | a scheduled attempt is cancelled; no attempt starts while offline, and a loss while offline waits for the network instead of using up an attempt |
 | reconnecting | available or changed | the attempt budget starts over (`maxAttempts` on the new network). A scheduled attempt is cancelled, an attempt in progress is abandoned (its session torn down silently) and a new attempt starts at once |

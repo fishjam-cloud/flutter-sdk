@@ -162,6 +162,54 @@ void main() {
       expect(h.eventsOf<Disconnected>().single.reason, DisconnectReason.left);
     });
 
+    test('connect() during the teardown of the previous session opens its '
+        'socket once that session has ended', () async {
+      h = ClientHarness();
+      await h.join();
+      final gate = h.transport.closeGate = Completer<void>();
+      final leaving = h.client.leave();
+      await settle();
+      final connecting = h.client.connect(
+        url: 'ws://fishjam.test',
+        token: 'peer-token',
+      );
+      await settle();
+      expect(h.transport.isOpen, isFalse);
+      h.events.clear();
+
+      gate.complete();
+      await leaving;
+      await settle();
+      await h.rejoin();
+      await connecting;
+      expect(h.events.map((e) => e.runtimeType), [
+        Disconnected,
+        AuthSucceeded,
+        Joined,
+      ]);
+    });
+
+    test('leave() while connect() waits for the previous teardown settles '
+        'it; its socket never opens', () async {
+      h = ClientHarness();
+      await h.join();
+      final gate = h.transport.closeGate = Completer<void>();
+      final leaving = h.client.leave();
+      await settle();
+      final connecting = expectLater(
+        h.client.connect(url: 'ws://fishjam.test', token: 'peer-token'),
+        throwsA(isA<ConnectionException>()),
+      );
+      await settle();
+      await h.client.leave();
+
+      gate.complete();
+      await leaving;
+      await connecting;
+      expect(h.transport.connectedUrl, isNull);
+      expect(h.client.status, ConnectionStatus.disconnected);
+    });
+
     test('audio-only room: AuthSucceeded reports it and video tracks are '
         'rejected synchronously (SPEC §20)', () async {
       h = ClientHarness();
@@ -389,8 +437,7 @@ void main() {
     Future<void> reconnectAndRestore() async {
       h.transport.serverClose(code: 1011, reason: 'boom');
       await _wait(40);
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       await h.negotiate();
       await settle();
     }
@@ -410,8 +457,7 @@ void main() {
       expect(h.transports.created, hasLength(2));
       expect(firstTransport.closedByClient, isTrue);
       expect(firstPc.isClosed, isTrue);
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       await settle();
       expect(h.eventsOf<Reconnected>(), hasLength(1));
       expect(h.client.status, ConnectionStatus.joined);
@@ -425,23 +471,9 @@ void main() {
       final adding = h.client.addTrack(h.track('audio'));
       final result = expectLater(adding, throwsA(anything));
       await settle();
-      await h.receive(
-        server.MediaEvent(
-          offerData: server.MediaEvent_OfferData(
-            tracksTypes: server.MediaEvent_OfferData_TrackTypes(),
-          ),
-        ),
-      );
-      final offer = h.sentOf(_C.sdpOffer).last.sdpOffer;
+      await h.offerData();
       h.pc.failNext('setRemoteDescription', StateError('bad answer'));
-      await h.receive(
-        server.MediaEvent(
-          sdpAnswer: server.MediaEvent_SdpAnswer(
-            sdp: 'v=0',
-            midToTrackId: offer.midToTrackId.entries,
-          ),
-        ),
-      );
+      await h.answer();
       await result;
       await settle();
       expect(h.eventsOf<ConnectionError>(), hasLength(1));
@@ -463,8 +495,7 @@ void main() {
 
       h.transport.serverClose(code: 1011, reason: 'boom');
       await _wait(40);
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       // The restored camera is being negotiated.
       expect(h.sentOf(_C.renegotiateTracks), isNotEmpty);
       await h.negotiate();
@@ -536,12 +567,10 @@ void main() {
 
       h.transport.serverClose(code: 1011, reason: 'boom');
       await _wait(40);
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       h.transport.serverClose(code: 1011, reason: 'boom'); // restore pending
       await _wait(60);
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       await h.negotiate();
       await settle();
 
@@ -561,8 +590,7 @@ void main() {
         h.events.clear();
         h.transport.loseConnection();
         await _wait(40);
-        await h.authenticate();
-        await h.connectedEvent();
+        await h.rejoin();
         await settle();
         expect(h.eventsOf<LocalTrackRemoved>().single.trackId, cam);
         expect(h.eventsOf<LocalTrackAdded>(), isEmpty);
@@ -630,8 +658,7 @@ void main() {
       client.events.listen(events.add);
       final connecting = client.connect(url: 'ws://f', token: 't');
       await settle();
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       await connecting;
       failing = true;
       h.transport.serverClose(code: 1011, reason: 'boom');
@@ -687,8 +714,7 @@ void main() {
       expect(h.eventsOf<PeerJoined>(), isEmpty);
 
       await _wait(40);
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       // Joined, but the track is still being restored.
       expect(h.eventsOf<Joined>(), hasLength(2));
       expect(h.client.status, ConnectionStatus.reconnecting);
@@ -725,8 +751,7 @@ void main() {
       h.events.clear();
       h.transport.serverClose(code: 1011, reason: 'boom');
       await _wait(40);
-      await h.authenticate();
-      await h.connectedEvent(endpoints: {'bob': endpoints['bob']!});
+      await h.rejoin(endpoints: {'bob': endpoints['bob']!});
       await settle();
 
       final described = [
@@ -758,6 +783,9 @@ void main() {
       initialDelay: Duration(seconds: 5),
       delay: Duration(seconds: 5),
     );
+    const offlineFor50ms = ReconnectConfig(
+      offlineTimeout: Duration(milliseconds: 50),
+    );
 
     test('a change while joined replaces the session at once', () async {
       h = ClientHarness(reconnect: slow);
@@ -768,8 +796,7 @@ void main() {
       expect(h.eventsOf<ReconnectionStarted>(), hasLength(1));
       expect(h.transports.created, hasLength(2));
       expect(first.closedByClient, isTrue);
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       expect(h.eventsOf<Reconnected>(), hasLength(1));
       expect(h.eventsOf<Disconnected>(), isEmpty);
     });
@@ -829,11 +856,7 @@ void main() {
     });
 
     test('offline for offlineTimeout ends the reconnection', () async {
-      h = ClientHarness(
-        reconnect: const ReconnectConfig(
-          offlineTimeout: Duration(milliseconds: 50),
-        ),
-      );
+      h = ClientHarness(reconnect: offlineFor50ms);
       await h.join();
       h.network.report({});
       await _wait(100);
@@ -875,13 +898,11 @@ void main() {
         await _wait(10);
         h.network.report({});
         await _wait(10);
-        await h.authenticate();
-        await h.connectedEvent(endpoints: {'bob': bob});
+        await h.rejoin(endpoints: {'bob': bob});
         h.network.report({'wifi'});
         await _wait(10);
         expect(h.transports.created, hasLength(3));
-        await h.authenticate();
-        await h.connectedEvent();
+        await h.rejoin();
         await settle();
 
         expect(remoteEvents(), [
@@ -900,14 +921,12 @@ void main() {
         h.events.clear();
         h.network.report({'cellular'});
         await _wait(10);
-        await h.authenticate();
         // No negotiation follows, so the restore stays pending.
-        await h.connectedEvent(endpoints: {'bob': bob});
+        await h.rejoin(endpoints: {'bob': bob});
         h.network.report({'wifi'});
         await _wait(10);
         expect(h.transports.created, hasLength(3));
-        await h.authenticate();
-        await h.connectedEvent();
+        await h.rejoin();
         await settle();
 
         expect(remoteEvents(), [
@@ -917,6 +936,45 @@ void main() {
           'Joined []',
         ]);
       });
+    });
+
+    test('an attempt that joins while offline reports the old local tracks '
+        'removed right after its Joined', () async {
+      h = ClientHarness(reconnect: slow);
+      await h.join();
+      final cam = await h.publish('video');
+      h.events.clear();
+      List<String> sequence() => [
+        for (final e in h.events)
+          switch (e) {
+            Joined() => 'Joined',
+            LocalTrackAdded(:final track) => 'added ${track.trackId}',
+            LocalTrackRemoved(:final trackId) => 'removed $trackId',
+            Reconnected() => 'Reconnected',
+            _ => null,
+          },
+      ].nonNulls.toList();
+
+      h.network.report({'cellular'});
+      await _wait(10);
+      h.network.report({});
+      await _wait(10);
+      await h.rejoin();
+      expect(sequence(), ['Joined', 'removed $cam']);
+
+      h.network.report({'wifi'});
+      await _wait(10);
+      await h.rejoin();
+      await h.negotiate();
+      await settle();
+      final cam2 = h.eventsOf<LocalTrackAdded>().single.track.trackId;
+      expect(sequence(), [
+        'Joined',
+        'removed $cam',
+        'Joined',
+        'added $cam2',
+        'Reconnected',
+      ]);
     });
 
     group('only local tracks the app was told about are reported removed and '
@@ -940,8 +998,7 @@ void main() {
         await expectLater(adding, throwsStateError);
         await _wait(10);
         expect(h.transports.created, hasLength(2));
-        await h.authenticate();
-        await h.connectedEvent();
+        await h.rejoin();
         await settle();
 
         expect(localEvents(), ['Reconnected']);
@@ -955,57 +1012,30 @@ void main() {
         h.events.clear();
         h.transport.serverClose(code: 1011, reason: 'boom');
         await _wait(40);
-        await h.authenticate();
-        await h.connectedEvent();
-        await h.receive(
-          server.MediaEvent(
-            offerData: server.MediaEvent_OfferData(
-              tracksTypes: server.MediaEvent_OfferData_TrackTypes(),
-            ),
-          ),
-        );
-        final offer = h.sentOf(_C.sdpOffer).last.sdpOffer;
-        final attempt = h.transport;
+        await h.rejoin();
+        await h.offerData();
         h.pc.setConnectionState(PeerConnectionState.failed);
         await settle();
-        attempt.receive(
-          PeerMessage(
-            serverMediaEvent: server.MediaEvent(
-              sdpAnswer: server.MediaEvent_SdpAnswer(
-                sdp: 'v=0\r\ns=fake-answer\r\n',
-                midToTrackId: offer.midToTrackId.entries,
-              ),
-            ),
-          ),
-        );
+        // The answer reaches the attempt after it was given up; the next
+        // attempt starts 40 ms after the loss.
+        await h.answer();
         await _wait(40);
-        await h.authenticate();
-        await h.connectedEvent();
+        await h.rejoin();
         await h.negotiate();
         await settle();
 
-        final events = localEvents();
-        expect(events.first, 'removed $first');
-        final added = {
-          for (final e in events)
-            if (e.startsWith('added ')) e.substring(6),
-        };
-        final removed = [
-          for (final e in events.skip(1))
-            if (e.startsWith('removed ')) e.substring(8),
-        ];
-        expect(removed.where((id) => !added.contains(id)), isEmpty);
-        expect(events.last, 'Reconnected');
+        final restored = h.eventsOf<LocalTrackAdded>().single.track.trackId;
+        expect(localEvents(), [
+          'removed $first',
+          'added $restored',
+          'Reconnected',
+        ]);
       });
     });
 
     test('connect() from a ReconnectionFailed listener is not failed by the '
         'teardown of the given-up session', () async {
-      h = ClientHarness(
-        reconnect: const ReconnectConfig(
-          offlineTimeout: Duration(milliseconds: 50),
-        ),
-      );
+      h = ClientHarness(reconnect: offlineFor50ms);
       await h.join();
       Object? retryError;
       var retried = false;
@@ -1023,8 +1053,7 @@ void main() {
       await _wait(100);
       expect(retried, isTrue);
       expect(retryError, isNull);
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       await settle();
 
       expect(retryError, isNull);
@@ -1045,17 +1074,17 @@ void main() {
       await settle();
       h.network.report({'cellular'});
       await settle();
-      await h.authenticate();
-      await h.connectedEvent();
+      await h.rejoin();
       await connected;
       await _wait(40);
       expect(h.eventsOf<ReconnectionStarted>(), isEmpty);
       expect(h.transports.created, hasLength(1));
     });
 
-    test('with reconnection disabled, a change is ignored', () async {
+    test('with reconnection disabled, the network is not watched', () async {
       h = ClientHarness(reconnect: ReconnectConfig.disabled);
       await h.join();
+      expect(h.network.isWatched, isFalse);
       h.network.report({'cellular'});
       await _wait(40);
       expect(h.client.status, ConnectionStatus.joined);
