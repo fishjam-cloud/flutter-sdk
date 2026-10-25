@@ -23,7 +23,7 @@ void main() {
   test('reports the kinds of network in use', () async {
     platform.current = [ConnectivityResult.mobile, ConnectivityResult.vpn];
 
-    expect(await ConnectivityNetworkMonitor().current(), {'cellular', 'vpn'});
+    expect(await ConnectivityNetworkMonitor().current(), {'mobile', 'vpn'});
   });
 
   test('none is reported as no network', () async {

@@ -791,7 +791,7 @@ void main() {
       h = ClientHarness(reconnect: slow);
       await h.join();
       final first = h.transport;
-      h.network.report({'cellular'});
+      h.network.report({'mobile'});
       await settle();
       expect(h.eventsOf<ReconnectionStarted>(), hasLength(1));
       expect(h.transports.created, hasLength(2));
@@ -805,7 +805,7 @@ void main() {
       h = ClientHarness(reconnect: slow);
       await h.join();
       h.transport.closeGate = Completer<void>();
-      h.network.report({'cellular'});
+      h.network.report({'mobile'});
       await settle();
       expect(h.transports.created, hasLength(2));
       expect(h.transport.sentMessages.single.hasAuthRequest(), isTrue);
@@ -815,7 +815,7 @@ void main() {
       h = ClientHarness(reconnect: slow);
       await h.join();
       final gate = h.transport.closeGate = Completer<void>();
-      h.network.report({'cellular'});
+      h.network.report({'mobile'});
       await settle();
       gate.completeError(StateError('socket failed'));
       await _wait(10);
@@ -830,7 +830,7 @@ void main() {
       await _wait(100);
       expect(h.eventsOf<ReconnectionStarted>(), hasLength(1));
       expect(h.transports.created, hasLength(1));
-      h.network.report({'cellular'});
+      h.network.report({'mobile'});
       await settle();
       expect(h.transports.created, hasLength(2));
     });
@@ -838,7 +838,7 @@ void main() {
     test('gaining a network next to the current one changes nothing', () async {
       h = ClientHarness(reconnect: _fast);
       await h.join();
-      h.network.report({'wifi', 'cellular'});
+      h.network.report({'wifi', 'mobile'});
       await _wait(40);
       expect(h.eventsOf<ReconnectionStarted>(), isEmpty);
       expect(h.transports.created, hasLength(1));
@@ -849,7 +849,7 @@ void main() {
       await h.join();
       h.network.report({});
       await _wait(10);
-      h.network.report({'cellular'});
+      h.network.report({'mobile'});
       await _wait(100);
       expect(h.eventsOf<ReconnectionStarted>(), hasLength(1));
       expect(h.transports.created, hasLength(2));
@@ -894,7 +894,7 @@ void main() {
         h = ClientHarness(reconnect: slow);
         await h.join();
         h.events.clear();
-        h.network.report({'cellular'});
+        h.network.report({'mobile'});
         await _wait(10);
         h.network.report({});
         await _wait(10);
@@ -919,7 +919,7 @@ void main() {
         await h.join();
         await h.publish('audio');
         h.events.clear();
-        h.network.report({'cellular'});
+        h.network.report({'mobile'});
         await _wait(10);
         // No negotiation follows, so the restore stays pending.
         await h.rejoin(endpoints: {'bob': bob});
@@ -955,7 +955,7 @@ void main() {
           },
       ].nonNulls.toList();
 
-      h.network.report({'cellular'});
+      h.network.report({'mobile'});
       await _wait(10);
       h.network.report({});
       await _wait(10);
@@ -994,7 +994,7 @@ void main() {
         await h.join();
         final adding = h.client.addTrack(h.track('audio'));
         await settle();
-        h.network.report({'cellular'});
+        h.network.report({'mobile'});
         await expectLater(adding, throwsStateError);
         await _wait(10);
         expect(h.transports.created, hasLength(2));
@@ -1072,7 +1072,7 @@ void main() {
       h = ClientHarness(reconnect: _fast);
       final connected = h.client.connect(url: 'ws://fishjam.test', token: 't');
       await settle();
-      h.network.report({'cellular'});
+      h.network.report({'mobile'});
       await settle();
       await h.rejoin();
       await connected;
@@ -1085,7 +1085,7 @@ void main() {
       h = ClientHarness(reconnect: ReconnectConfig.disabled);
       await h.join();
       expect(h.network.isWatched, isFalse);
-      h.network.report({'cellular'});
+      h.network.report({'mobile'});
       await _wait(40);
       expect(h.client.status, ConnectionStatus.joined);
       expect(h.eventsOf<Disconnected>(), isEmpty);

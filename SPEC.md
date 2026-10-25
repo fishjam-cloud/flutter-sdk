@@ -215,7 +215,7 @@ States: `idle`, `reconnecting`, `failed`.
 
 ### 6.1 Network changes
 
-The client watches the kinds of network the device uses (Wi-Fi, cellular, ethernet, VPN, other), as the OS
+The client watches the kinds of network the device uses (Wi-Fi, mobile, ethernet, VPN, other), as the OS
 reports them. A socket and a peer connection are bound to the network they were opened on, so losing it means
 the session will not survive; reacting at once avoids waiting for a pong timeout or an ICE failure.
 
@@ -228,8 +228,8 @@ the session will not survive; reacting at once avoids waiting for a pong timeout
 - Kinds of change:
   - **lost**: now offline;
   - **available**: online after being offline;
-  - **changed**: a network went away while another remains (Wi-Fi → cellular, a VPN going down).
-  - Only gaining a network (cellular added next to Wi-Fi, a VPN coming up) and a repeat of the same set are no
+  - **changed**: a network went away while another remains (Wi-Fi → mobile, a VPN going down).
+  - Only gaining a network (mobile added next to Wi-Fi, a VPN coming up) and a repeat of the same set are no
     change: the connection keeps its path.
 - A switch between two Wi-Fi networks looks like the same set: some platforms report it as offline and then
   online (`lost`, then `available`), others not at all, and then the socket or ICE reports the loss.

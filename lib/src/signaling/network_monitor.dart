@@ -5,7 +5,7 @@ import 'package:fishjam_client/src/logger.dart';
 /// The device's networks as the OS reports them. Signaling depends only on
 /// this seam; tests use `test/fakes/fake_network.dart`.
 abstract interface class NetworkMonitor {
-  /// The kinds of network in use (e.g. `wifi`, `cellular`); empty when
+  /// The kinds of network in use (e.g. `wifi`, `mobile`); empty when
   /// offline. Throws when the OS cannot be asked.
   Future<Set<String>> current();
 
@@ -90,7 +90,7 @@ class NetworkWatcher {
     if (now.isEmpty) return last.isEmpty ? null : NetworkChange.lost;
     if (last.isEmpty) return NetworkChange.available;
     // Only losing a network can break the connection's path; gaining one
-    // (cellular next to Wi-Fi, a VPN coming up) leaves it in place.
+    // (mobile data next to Wi-Fi, a VPN coming up) leaves it in place.
     return now.containsAll(last) ? null : NetworkChange.changed;
   }
 }

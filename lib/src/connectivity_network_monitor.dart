@@ -13,9 +13,6 @@ final class ConnectivityNetworkMonitor implements NetworkMonitor {
 
   static Set<String> _kinds(List<ConnectivityResult> results) => {
     for (final result in results)
-      if (result == ConnectivityResult.mobile)
-        'cellular'
-      else if (result != ConnectivityResult.none)
-        result.name,
+      if (result != ConnectivityResult.none) result.name,
   };
 }

@@ -46,7 +46,7 @@ void main() {
 
   test('a report is acted on at once', () {
     run((async) {
-      monitor.report({'cellular'});
+      monitor.report({'mobile'});
       async.flushMicrotasks();
 
       expect(changes, [NetworkChange.changed]);
@@ -80,11 +80,11 @@ void main() {
 
   test('only gaining a network is no change; losing one later is', () {
     run((async) {
-      monitor.report({'wifi', 'cellular'});
+      monitor.report({'wifi', 'mobile'});
       async.flushMicrotasks();
       expect(changes, isEmpty);
 
-      monitor.report({'cellular'});
+      monitor.report({'mobile'});
       async.flushMicrotasks();
       expect(changes, [NetworkChange.changed]);
     });
@@ -160,7 +160,7 @@ void main() {
     monitor.currentError = StateError('no plugin');
     run((async) {
       expect(monitor.isWatched, isFalse);
-      monitor.report({'cellular'});
+      monitor.report({'mobile'});
       async.flushMicrotasks();
 
       expect(changes, isEmpty);
@@ -193,10 +193,10 @@ void main() {
       async.flushMicrotasks();
       expect(monitor.isWatched, isFalse);
 
-      monitor.report({'cellular'});
+      monitor.report({'mobile'});
       unawaited(watcher.start());
       async.flushMicrotasks();
-      monitor.report({'cellular'});
+      monitor.report({'mobile'});
       async.flushMicrotasks();
       expect(changes, isEmpty);
     });
