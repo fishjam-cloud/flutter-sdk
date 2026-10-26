@@ -627,6 +627,62 @@ React Native SDK's `AudioOutputManager` and talks to the SDK's native plugin ove
   in progress. The iOS route observer starts when Dart subscribes to `onAudioOutputChanged`, so a change is
   delivered even when no device getter has run yet.
 
+## 20c. Background calls
+
+Two singletons keep a call running while the app is in the background. They mirror the React Native SDK's
+`useForegroundService` and `useCallKitService` / `useCallKit` / `useCallKitEvent`. Both talk to the SDK's
+native plugin over the method channel `io.fishjam.client/background`; CallKit actions arrive on the event
+channel `io.fishjam.client/callkit_events`. The client never starts either on its own: the app starts them
+when it joins and stops them when it leaves.
+
+### Android foreground service
+
+`ForegroundService.instance.start(ForegroundServiceConfig)` and `stop()`. Both are no-ops on other platforms.
+
+- Config: `enableCamera`, `enableMicrophone`, `enableScreenSharing` (all `false` by default), `channelId`
+  (default `com.fishjam.foregroundservice.channel`), `channelName` (default `Fishjam Notifications`),
+  `notificationTitle`, `notificationContent`, `importance` (`low` | `high`, default `high`), `onlyAlertOnce`
+  (default `false`). Unset strings keep the native defaults.
+- `start` sends `startForegroundService` with the config as a map; `importance` is sent by name and unset
+  strings are omitted. Calling `start` again replaces the config of the running service.
+- On Android 13+ the first `start` asks for `POST_NOTIFICATIONS`. A refusal is logged and the service starts
+  anyway: the notification is hidden but the app keeps running.
+- The service type is the union of `camera` (when enabled and `CAMERA` is granted), `microphone` (when enabled
+  and `RECORD_AUDIO` is granted) and `mediaProjection` (when `enableScreenSharing`, API 29+). With no type
+  left the service stops.
+- `stop` sends `stopForegroundService` and stops the service.
+- The plugin's manifest declares nothing. The app declares the service
+  `io.fishjam.client.foregroundservice.FishjamForegroundService` and the `FOREGROUND_SERVICE*` permissions,
+  so apps that do not use it never need the matching Play Store declarations.
+- Screen sharing: flutter_webrtc reports no capture start, so `mediaProjection` is added as soon as
+  `enableScreenSharing` is set. Android 14+ requires the user's consent before that, so the order is
+  `Helper.requestCapturePermission()`, then `start(enableScreenSharing: true)`, then `getDisplayMedia`.
+
+### iOS CallKit
+
+`CallKit.instance`. Every method is a no-op on other platforms; the getters return `false` there and
+`actions` never emits.
+
+- `startSession(CallKitConfig)`: `{displayName, handle, isVideo, isDialing}`. `handle` defaults to
+  `displayName`, `isDialing` to `false`. An empty `displayName` throws `ArgumentError` without calling native
+  code. Sends `startCallKitSession`. A second session while one is active is ignored by native code.
+  Without `isDialing` the call is reported as connected right away; with it, the app calls
+  `reportOutgoingCallConnected()` once the other side joins.
+- `endSession([CallEndedReason reason = local])` sends `endCallKitSession` with the reason name. `local` and
+  `rejected` end the call through a CallKit transaction; the others report the call as ended with the
+  matching CallKit reason (`missed` → unanswered, `remote` → remote ended, `answeredElsewhere`, `failed`).
+- `setHeld(onHold:)` / `setMuted(muted:)` ask CallKit to change the state; the result arrives as an action.
+- `hasActiveSession()` and `isHeld()` read native state. They return futures because platform channels have
+  no synchronous calls.
+- `actions` (broadcast) emits `CallKitStarted`, `CallKitEnded(reason)`, `CallKitFailed(message)`,
+  `CallKitMuted(isMuted)`, `CallKitHeld(isHeld)`. Native events are maps with one key (`started`, `ended`,
+  `failed`, `muted`, `held`); unknown keys are dropped and an unknown end reason becomes `local`.
+- CallKit activates the `AVAudioSession`. The plugin forwards `didActivate` / `didDeactivate` to flutter_webrtc's
+  `RTCAudioSession`, looked up by name at runtime so the plugin has no build dependency on the WebRTC pod.
+  This keeps microphone capture and playback running. It does not keep the camera running.
+- The app adds `audio` and `voip` to `UIBackgroundModes`. Out of scope: VoIP push, incoming calls, answering,
+  ring timeouts.
+
 ## 21. Logging
 
 One SDK logger, created from `FishjamClient(debug: bool)`. Messages are prefixed with `[FISHJAM]` and emitted

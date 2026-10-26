@@ -1,19 +1,29 @@
 package io.fishjam.client
 
+import android.content.Context
 import android.util.Log
+import io.fishjam.client.foregroundservice.ForegroundServiceController
+import io.fishjam.client.foregroundservice.NotificationPermission
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.Result
 
-class FishjamClientPlugin : FlutterPlugin {
+class FishjamClientPlugin : FlutterPlugin, ActivityAware {
+    private lateinit var context: Context
     private lateinit var audioChannel: MethodChannel
     private lateinit var audioEvents: EventChannel
     private lateinit var audioOutput: AudioOutputManager
     private var audioEventSink: EventChannel.EventSink? = null
+    private lateinit var backgroundChannel: MethodChannel
+    private val notificationPermission = NotificationPermission()
+    private var activityBinding: ActivityPluginBinding? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        context = binding.applicationContext
         disableFlutterWebrtcAudioRouting()
         audioOutput = AudioOutputManager(binding.applicationContext) { event ->
             audioEventSink?.success(event)
@@ -31,6 +41,8 @@ class FishjamClientPlugin : FlutterPlugin {
                 audioEventSink = null
             }
         })
+        backgroundChannel = MethodChannel(binding.binaryMessenger, BACKGROUND_CHANNEL)
+        backgroundChannel.setMethodCallHandler(::onBackgroundMethodCall)
     }
 
     private fun onAudioMethodCall(call: MethodCall, result: Result) {
@@ -50,11 +62,47 @@ class FishjamClientPlugin : FlutterPlugin {
         }
     }
 
+    private fun onBackgroundMethodCall(call: MethodCall, result: Result) {
+        when (call.method) {
+            "startForegroundService" -> {
+                val config = call.arguments as? Map<*, *> ?: emptyMap<String, Any>()
+                notificationPermission.request(context) {
+                    ForegroundServiceController.start(context, config)
+                    result.success(null)
+                }
+            }
+            "stopForegroundService" -> {
+                ForegroundServiceController.stop(context)
+                result.success(null)
+            }
+            else -> result.notImplemented()
+        }
+    }
+
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         audioChannel.setMethodCallHandler(null)
         audioEvents.setStreamHandler(null)
         audioEventSink = null
         audioOutput.stopObserving()
+        backgroundChannel.setMethodCallHandler(null)
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activityBinding = binding
+        notificationPermission.activity = binding.activity
+        binding.addRequestPermissionsResultListener(notificationPermission)
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() = onDetachedFromActivity()
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) =
+        onAttachedToActivity(binding)
+
+    override fun onDetachedFromActivity() {
+        activityBinding?.removeRequestPermissionsResultListener(notificationPermission)
+        activityBinding = null
+        notificationPermission.activity = null
+        notificationPermission.flush()
     }
 
     /**
@@ -85,5 +133,6 @@ class FishjamClientPlugin : FlutterPlugin {
         private const val TAG = "FishjamClientPlugin"
         private const val AUDIO_CHANNEL = "io.fishjam.client/audio_output"
         private const val AUDIO_EVENTS_CHANNEL = "io.fishjam.client/audio_output_events"
+        private const val BACKGROUND_CHANNEL = "io.fishjam.client/background"
     }
 }

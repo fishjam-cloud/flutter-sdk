@@ -64,6 +64,7 @@ Run analyze, format and tests before every commit.
 | `lib/src/data/` | reliable/lossy data channels and `ChannelMessage` framing |
 | `lib/src/stats/` | periodic stats report |
 | `lib/src/livestream/` | WHIP/WHEP over plain HTTP, independent of the room connection |
+| `lib/src/audio_output/`, `lib/src/background/` | Dart side of the SDK's native plugin: audio routing, Android foreground service, iOS CallKit |
 | `lib/src/models/`, `wire.dart`, `logger.dart`, `version.dart` | public immutable types and shared helpers |
 | `lib/src/fishjam_client.dart`, `lib/src/livestream_api.dart`, `lib/fishjam_client.dart` | the public facade; wiring and type conversion only |
 | `test/fakes/`, `test/support/`, `test/fixtures/` | fakes, fixture replayer, golden sequences |

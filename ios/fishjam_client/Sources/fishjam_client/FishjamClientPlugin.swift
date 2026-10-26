@@ -6,6 +6,10 @@ public class FishjamClientPlugin: NSObject, FlutterPlugin, FlutterStreamHandler 
   private lazy var audioOutput = AudioOutputManager { [weak self] event in
     self?.audioEventSink?(event)
   }
+  private let callKitEvents = EventSinkHandler()
+  private lazy var callKit = CallKitManager { [weak self] event in
+    self?.callKitEvents.sink?(event)
+  }
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = FishjamClientPlugin()
@@ -22,6 +26,20 @@ public class FishjamClientPlugin: NSObject, FlutterPlugin, FlutterStreamHandler 
       binaryMessenger: registrar.messenger()
     )
     audioEvents.setStreamHandler(instance)
+
+    let backgroundChannel = FlutterMethodChannel(
+      name: "io.fishjam.client/background",
+      binaryMessenger: registrar.messenger()
+    )
+    backgroundChannel.setMethodCallHandler { [weak instance] call, result in
+      guard let instance else { return result(FlutterMethodNotImplemented) }
+      instance.callKit.handle(call, result: result)
+    }
+    let callKitEvents = FlutterEventChannel(
+      name: "io.fishjam.client/callkit_events",
+      binaryMessenger: registrar.messenger()
+    )
+    callKitEvents.setStreamHandler(instance.callKitEvents)
   }
 
   private func handleAudio(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -59,6 +77,22 @@ public class FishjamClientPlugin: NSObject, FlutterPlugin, FlutterStreamHandler 
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
     audioOutput.stopObserving()
     audioEventSink = nil
+    return nil
+  }
+}
+
+final class EventSinkHandler: NSObject, FlutterStreamHandler {
+  private(set) var sink: FlutterEventSink?
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink)
+    -> FlutterError?
+  {
+    sink = events
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    sink = nil
     return nil
   }
 }

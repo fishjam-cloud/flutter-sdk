@@ -10,6 +10,22 @@ export 'src/audio_output/audio_output_manager.dart'
         AudioOutputManager,
         IosAudioOutput,
         IosAudioOutputOverride;
+export 'src/background/call_kit.dart'
+    show
+        CallEndedReason,
+        CallKit,
+        CallKitAction,
+        CallKitConfig,
+        CallKitEnded,
+        CallKitFailed,
+        CallKitHeld,
+        CallKitMuted,
+        CallKitStarted;
+export 'src/background/foreground_service.dart'
+    show
+        ForegroundService,
+        ForegroundServiceConfig,
+        ForegroundServiceImportance;
 export 'src/fishjam_client.dart' show FishjamClient;
 export 'src/livestream_api.dart'
     show
