@@ -23,15 +23,6 @@ webrtc.RTCSessionDescription _toNativeDescription(
   SessionDescription description,
 ) => webrtc.RTCSessionDescription(description.sdp, description.type.name);
 
-TransceiverDirection _fromNativeDirection(webrtc.TransceiverDirection d) =>
-    switch (d) {
-      webrtc.TransceiverDirection.SendRecv => TransceiverDirection.sendrecv,
-      webrtc.TransceiverDirection.SendOnly => TransceiverDirection.sendonly,
-      webrtc.TransceiverDirection.RecvOnly => TransceiverDirection.recvonly,
-      webrtc.TransceiverDirection.Inactive => TransceiverDirection.inactive,
-      webrtc.TransceiverDirection.Stopped => TransceiverDirection.stopped,
-    };
-
 webrtc.TransceiverDirection _toNativeDirection(TransceiverDirection d) =>
     switch (d) {
       TransceiverDirection.sendrecv => webrtc.TransceiverDirection.SendRecv,

@@ -45,6 +45,7 @@ class RtcEngine {
     required this.localTracks,
     required this.remote,
     this.nativeCallTimeout = const Duration(seconds: 10),
+    this.iceDisconnectedTimeout = const Duration(seconds: 3),
     this.onServerError,
     this.onLocalPeerRemoved,
     this.onConnectionFailed,
@@ -66,6 +67,9 @@ class RtcEngine {
   /// `setLocalDescription`, `setRemoteDescription`).
   final Duration nativeCallTimeout;
 
+  /// How long ICE may stay `disconnected` before it counts as a failure.
+  final Duration iceDisconnectedTimeout;
+
   final void Function(String message)? onServerError;
 
   final void Function()? onLocalPeerRemoved;
@@ -85,6 +89,8 @@ class RtcEngine {
   String? _localPeerId;
   List<IceServer> _iceServers = const [];
   RtcPeerConnection? _pc;
+
+  late final _receiveTransceivers = ReceiveTransceivers(logger: _logger);
   final _subscriptions = <StreamSubscription<Object?>>[];
   bool _hasRemoteDescription = false;
   final _pendingCandidates = <IceCandidate>[];
@@ -96,6 +102,7 @@ class RtcEngine {
   final _ownedStreams = <RtcMediaStream>{};
   bool _failed = false;
   bool _closed = false;
+  Timer? _iceDisconnectedTimer;
 
   void connect(Object? peerMetadata) {
     localTracks.peerMetadata = peerMetadata;
@@ -316,6 +323,7 @@ class RtcEngine {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _iceDisconnectedTimer?.cancel();
     _commands.failAll();
     _negotiation.reset();
     if (!_joined.isCompleted) _joined.completeError(StateError('disconnected'));
@@ -476,7 +484,7 @@ class RtcEngine {
     }
     try {
       final pc = await _ensurePeerConnection();
-      await syncReceiveTransceivers(pc, offerData.tracksTypes);
+      await _receiveTransceivers.sync(pc, offerData.tracksTypes);
       await _commands.drainBatch();
       final offer = await pc.createOffer().timeout(nativeCallTimeout);
       // Native stacks emit candidates during setLocalDescription, before
@@ -639,6 +647,18 @@ class RtcEngine {
             _perform(_negotiation.handle(NegotiationInput.iceDisconnected));
           }),
         );
+        // The OS reports `failed` only after tens of seconds; a network
+        // switch should not keep the call frozen that long.
+        _iceDisconnectedTimer ??= Timer(
+          iceDisconnectedTimeout,
+          () => _connectionFailed(
+            'ICE connection disconnected for '
+            '${iceDisconnectedTimeout.inMilliseconds} ms',
+          ),
+        );
+      case IceConnectionState.connected || IceConnectionState.completed:
+        _iceDisconnectedTimer?.cancel();
+        _iceDisconnectedTimer = null;
       case IceConnectionState.failed:
         _connectionFailed('ICE connection failed');
       case _:

@@ -38,6 +38,8 @@ Conventions:
 - Text frames from the server are ignored (logged at debug level).
 - The server pings every 30 s. The client additionally sends its own pings (interval 15 s) and treats a
   missing pong within one interval as a connection loss (retryable, [§6](#6-reconnection)).
+- Opening the socket (connection, TLS and upgrade) times out after 10 s; a timeout fails like a socket that
+  cannot be opened. Closing a socket that is still opening aborts the open, which fails the same way.
 
 ### 2.2 Messages
 
@@ -107,7 +109,12 @@ idle ──connect()──▶ connecting ──authenticated──▶ authentica
    - join close reason → `JoinException(reason)` (and `JoinFailed` is emitted),
    - any other close or socket failure before `Joined` → `ConnectionException(code, reason)`.
    Reconnection is **not** attempted for failures before the first `Joined`.
-6. Calling `connect()` while not `idle`/`disconnected` throws `StateError`.
+6. Calling `connect()` while not `idle`/`disconnected` throws `StateError`. The status is `disconnected`
+   from the moment a session is given up, so `connect()` may be called from a listener of an event emitted
+   then (e.g. `ReconnectionFailed`) or without awaiting `leave()`. Such a call opens its socket only once the
+   given-up session is torn down and its `Disconnected` emitted, so nothing of the old session (events, the
+   audio mode of [§20b](#20b-audio-output-routing)) lands in the new one. That teardown settles only the
+   `connect()` call that started it.
 
 ### 3.3 `leave()`
 
@@ -168,19 +175,20 @@ All client → server messages go through a single ordered queue in front of the
 ## 6. Reconnection
 
 Configuration (`ReconnectConfig`): `maxAttempts` (default 3), `initialDelay` (default 500 ms), `delay`
-(default 500 ms), `addTracksOnReconnect` (default false). `ReconnectConfig.disabled` turns it off. Reconnect is
-enabled with defaults unless configured otherwise.
+(default 500 ms), `addTracksOnReconnect` (default true, D27), `offlineTimeout` (default 60 s, [§6.1](#61-network-changes)).
+`ReconnectConfig.disabled` turns it off. Reconnect is enabled with defaults unless configured otherwise.
 
 States: `idle`, `reconnecting`, `failed`.
 
 | From | Trigger | Action | To |
 |---|---|---|---|
-| idle (joined) | retryable loss: retryable close, socket error, pong timeout, peer connection `failed`, ICE `failed` | snapshot local peer metadata (`peer` part) and local tracks; emit `ReconnectionStarted`; schedule attempt 1 | reconnecting |
-| reconnecting | attempt timer fires | tear down old session silently (no `Disconnected`); start a new session with the snapshot metadata | reconnecting |
+| idle (joined) | retryable loss: retryable close, socket error, pong timeout, peer connection `failed`, ICE `failed`, ICE `disconnected` for 3 s ([§8.4](#84-peer-connection)), network change ([§6.1](#61-network-changes)) | snapshot local peer metadata (`peer` part) and local tracks; emit `ReconnectionStarted`; schedule attempt 1 | reconnecting |
+| reconnecting | attempt timer fires while online | tear down old session silently (no `Disconnected`) without waiting for its socket to finish closing; start a new session with the snapshot metadata | reconnecting |
+| reconnecting | the network is lost or comes back or changes | see [§6.1](#61-network-changes) | reconnecting |
 | reconnecting | retryable loss in the new session before `connected` (including a new session that cannot be started at all) | schedule next attempt if attempts remain | reconnecting |
 | reconnecting | retryable loss, no attempts left | clear queue; emit `ReconnectionFailed`, then `Disconnected(DisconnectReason.reconnectionFailed)` | failed |
 | reconnecting | terminal close (auth/join/session ended/protocol) | cancel timer; clear queue; emit the matching error event and `Disconnected` | failed |
-| reconnecting | `connected` | emit `TrackRemoved` for every remote track and then `PeerLeft` / `ComponentRemoved` for every remote endpoint the app was told about by the lost session; emit `Joined` (its snapshot is the source of truth); emit `LocalTrackRemoved(oldTrackId)` for every snapshotted track (once per reconnection, also without `addTracksOnReconnect`); if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
+| reconnecting | `connected` | emit `TrackRemoved` for every remote track and then `PeerLeft` / `ComponentRemoved` for every remote endpoint the app was told about by the lost session; emit `Joined` (its snapshot is the source of truth); emit `LocalTrackRemoved` for every local track id the app was told about by the lost sessions (also without `addTracksOnReconnect`); if `addTracksOnReconnect`, re-add every snapshotted track whose media track is still live (skip, do not abort on, ended or muted tracks), all at once and in snapshot order, so they ride one negotiation cycle ([§8.3](#83-command-queue)); when all re-adds settled (success or failure): flush queue, emit `Reconnected`, reset attempt counter | idle |
 | any | `leave()` | cancel timer; clear queue | idle |
 
 - Delay of attempt `n` (1-based) is `initialDelay + (n - 1) * delay`.
@@ -191,12 +199,58 @@ States: `idle`, `reconnecting`, `failed`.
   of its events are forwarded and its close or failure is ignored. App operations that need the session (track
   operations, metadata updates, `setTargetTrackEncoding`, `createDataChannels()`) fail at once with a
   `StateError` naming the reconnecting state; nothing is queued for later.
-- Every local track id of the lost session ends with `LocalTrackRemoved`: the tracks went away with the
-  session. A re-added track gets a **new** track id; `LocalTrackAdded` is emitted for it after the removals.
-  If an attempt that already re-added tracks is lost before `Reconnected`, those new ids are reported
-  removed when the next attempt starts.
+- An attempt replaced after its `Joined` without a loss of its own (it joined while offline, or a new network
+  appeared while its tracks were restored, [§6.1](#61-network-changes)) counts as lost too: the remote
+  endpoints it announced are reported gone before the next `Joined`.
+- Every local track id of a lost session ends with `LocalTrackRemoved` right after the next `Joined` (or with
+  the `Disconnected` that ends a failed reconnection): the tracks went away with the session. This includes
+  the new ids of tracks an attempt re-added before it was lost. A re-added track gets a **new** track id;
+  `LocalTrackAdded` is emitted for it after the removals.
+- Only tracks the app got `LocalTrackAdded` for (and no `LocalTrackRemoved` yet) are snapshotted, reported
+  removed and re-added. A track whose `addTrack` was still negotiating when the session was lost is not: its
+  `addTrack` fails, so the app never learned its id and does not expect it published. Neither is a track an
+  abandoned attempt negotiated without its `LocalTrackAdded` reaching the app.
 - A **muted** track (no media track) is not re-added: there is nothing to publish. The app adds the track
   again when it unmutes.
+
+### 6.1 Network changes
+
+The client watches the kinds of network the device uses (Wi-Fi, mobile, ethernet, VPN, other), as the OS
+reports them. A socket and a peer connection are bound to the network they were opened on, so losing it means
+the session will not survive; reacting at once avoids waiting for a pong timeout or an ICE failure.
+
+- With reconnection enabled, watching starts at `connect()` and stops when the client is disconnected; with
+  reconnection disabled the network is not watched. The first value read is the baseline. **Online** means at
+  least one network is reported; **offline** means none.
+- Every report is acted on when it arrives, compared with the previous report. The brief "offline" some
+  platforms report while switching networks is not waited out: no attempt starts while offline, and the network
+  reported after it starts one at once.
+- Kinds of change:
+  - **lost**: now offline;
+  - **available**: online after being offline;
+  - **changed**: a network went away while another remains (Wi-Fi → mobile, a VPN going down).
+  - Only gaining a network (mobile added next to Wi-Fi, a VPN coming up) and a repeat of the same set are no
+    change: the connection keeps its path.
+- A switch between two Wi-Fi networks looks like the same set: some platforms report it as offline and then
+  online (`lost`, then `available`), others not at all, and then the socket or ICE reports the loss.
+
+| Status | Change | Action |
+|---|---|---|
+| joined, reconnection enabled | changed | retryable loss `network changed` (§6), without waiting for the socket or ICE to fail |
+| joined, reconnection enabled | lost | retryable loss `network lost` (§6) |
+| before the first `Joined` of a `connect()` | any | no loss (the attempt fails or succeeds on its own); whether the device is online is remembered |
+| reconnecting | lost | a scheduled attempt is cancelled; no attempt starts while offline, and a loss while offline waits for the network instead of using up an attempt |
+| reconnecting | available or changed | the attempt budget starts over (`maxAttempts` on the new network). A scheduled attempt is cancelled, an attempt in progress is abandoned (its session torn down silently) and a new attempt starts at once |
+| reconnecting | offline for `offlineTimeout` | as "no attempts left" (§6): `ReconnectionFailed`, then `Disconnected(reconnectionFailed)` |
+
+- A session of a reconnection that reaches `connected` while the device is offline, or goes offline before its
+  tracks are restored, does not complete it: no `Reconnected`; the reconnection waits for the network and starts
+  a new attempt then.
+- One reconnection makes at most `3 × maxAttempts` attempts in total, so a network that keeps changing cannot
+  keep it going forever; when that cap is reached the reconnection fails as when no attempts are left.
+- When the OS cannot be asked, the client assumes it is always online and never reports a change. This is only
+  logged: the client asks for the networks in use before it subscribes to reports, so nothing reaches the app's
+  error handler.
 
 ## 7. Media event processing
 
@@ -284,17 +338,23 @@ Rules:
   candidate (end of gathering) is not sent. Remote candidates are added with `addIceCandidate`; failures are
   logged.
 - Connection state `failed` or ICE connection state `failed` emits `ConnectionError(message)` and is a
-  retryable loss ([§6](#6-reconnection)).
+  retryable loss ([§6](#6-reconnection)). So does ICE connection state `disconnected` that has not turned
+  `connected` or `completed` within 3 s: the OS takes much longer to report `failed`, while a short
+  `disconnected` recovers on its own.
 - A new session always creates a new peer connection; the old one is closed.
 
 ## 9. Receive transceiver sync
 
 On every `offerData{tracksTypes{audio, video}}`, the client makes the number of **live receive transceivers**
-per kind equal the server's numbers. A transceiver is a live receive transceiver when its direction is
-`recvonly` and its current direction is not `stopped`; its kind is its receiver track kind.
+per kind equal the server's numbers. The live receive transceivers are the `recvonly` transceivers this
+session added and has not stopped (the client always makes the offer, so it created every transceiver),
+identified by their receiver track id. The SDK does not ask transceivers for their direction: on Android
+`flutter_webrtc` disposes the handles of transceivers without a mid whenever it looks up a negotiated one, and
+on iOS transceivers without a mid share one id.
 
 1. Count live receive transceivers per kind.
-2. If there are more than requested, stop the excess, choosing transceivers with no `mid` first.
+2. If there are more than requested, stop the excess, choosing transceivers with no `mid` first. All
+   transceivers without a mid are stopped before any with a mid, from one `getTransceivers` snapshot.
 3. If there are fewer, add `recvonly` transceivers: first all missing **video**, then all missing **audio**.
 4. Negative deltas never throw.
 
@@ -715,6 +775,10 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D21 | local track ids of the lost session silently disappear on reconnect | `LocalTrackRemoved` for every old id; restored tracks get `LocalTrackAdded` with new ids (§6) | apps can drop stale ids |
 | D22 | remote peers and tracks of the lost session are kept and re-announced with `peerJoined` / `trackAdded` after reconnecting | `TrackRemoved` and `PeerLeft` / `ComponentRemoved` for all of them before the new `Joined`, whose snapshot is the source of truth (§6) | no stale or duplicate remote state |
 | D23 | (React Native SDK) audio output routing goes through Android Telecom while a Telecom call is active | always `AudioManager` (§20b) | this SDK has no Telecom integration yet |
+| D24 | a network switch is noticed only when the socket or ICE fails; attempts are used up while the device is offline | losing a network is a retryable loss; attempts wait while offline (at most `offlineTimeout`) and restart with a fresh budget on a new network (§6.1) | fast recovery on mobile; a tunnel does not exhaust the attempts |
+| D25 | ICE `disconnected` only renegotiates, however long it lasts | `disconnected` for 3 s is a retryable loss (§8.4) | do not wait for a late `failed` |
+| D26 | opening the socket has no timeout | 10 s (§2.1) | an attempt on a dead network does not hang |
+| D27 | `addTracksOnReconnect` defaults to false: after a reconnection the user publishes nothing until the app adds its tracks again | defaults to true (§6) | a network switch on mobile should not silently turn off the camera and microphone |
 
 ## 23. Golden fixtures
 

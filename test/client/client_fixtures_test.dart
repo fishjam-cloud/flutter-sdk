@@ -111,16 +111,21 @@ Object? _sync(void Function() call) {
   return null;
 }
 
+/// The fixture's `reconnect` settings; missing ones keep the SDK defaults.
 ReconnectConfig _reconnectConfig(Map<String, Object?> config) {
+  const defaults = ReconnectConfig();
   final json = config['reconnect'] as Map<String, Object?>?;
-  if (json == null) return const ReconnectConfig();
+  if (json == null) return defaults;
+  Duration? ms(String key) => switch (json[key]) {
+    final int value => Duration(milliseconds: value),
+    _ => null,
+  };
   return ReconnectConfig(
-    maxAttempts: (json['maxAttempts'] as int?) ?? 3,
-    initialDelay: Duration(
-      milliseconds: (json['initialDelayMs'] as int?) ?? 500,
-    ),
-    delay: Duration(milliseconds: (json['delayMs'] as int?) ?? 500),
-    addTracksOnReconnect: (json['addTracksOnReconnect'] as bool?) ?? false,
+    maxAttempts: json['maxAttempts'] as int? ?? defaults.maxAttempts,
+    initialDelay: ms('initialDelayMs') ?? defaults.initialDelay,
+    delay: ms('delayMs') ?? defaults.delay,
+    addTracksOnReconnect:
+        json['addTracksOnReconnect'] as bool? ?? defaults.addTracksOnReconnect,
   );
 }
 

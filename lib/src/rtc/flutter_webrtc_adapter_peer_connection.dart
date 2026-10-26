@@ -201,16 +201,6 @@ final class _Transceiver implements RtcRtpTransceiver {
   String? get mid => _midOrNull(_transceiver.mid);
 
   @override
-  Future<TransceiverDirection> getDirection() async =>
-      _fromNativeDirection(await _transceiver.getDirection());
-
-  @override
-  Future<TransceiverDirection?> getCurrentDirection() async {
-    final direction = await _transceiver.getCurrentDirection();
-    return direction == null ? null : _fromNativeDirection(direction);
-  }
-
-  @override
   RtcRtpSender get sender => _Sender(_transceiver.sender);
 
   @override

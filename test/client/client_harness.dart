@@ -11,6 +11,7 @@ import 'package:fishjam_client/src/proto/fishjam/media_events/server/server.pb.d
     as server;
 import 'package:fishjam_client/src/proto/fishjam/peer_notifications.pb.dart';
 
+import '../fakes/fake_network.dart';
 import '../fakes/fake_rtc.dart';
 import '../fakes/fake_transport.dart';
 import '../public/native_fakes.dart';
@@ -30,6 +31,7 @@ class ClientHarness {
       reconnect: reconnect,
       rtcAdapter: rtc,
       transportFactory: transports.call,
+      networkSource: network,
       audioOutput: audioOutput,
     );
     _subscription = client.events.listen(events.add);
@@ -37,6 +39,9 @@ class ClientHarness {
 
   /// Transports created by the client.
   final transports = FakeTransportFactory();
+
+  /// The device's networks, as the OS reports them.
+  final network = FakeNetworkSource();
 
   /// The WebRTC fake.
   final FakeRtcAdapter rtc;
@@ -87,9 +92,19 @@ class ClientHarness {
       peerMetadata: peerMetadata,
     );
     await settle();
+    await rejoin(roomType: roomType, endpoints: endpoints);
+    await connected;
+  }
+
+  /// The server lets the current transport in: authenticates it with
+  /// [roomType] and sends `connected` with [endpoints] besides the local
+  /// peer (a first join or a reconnection attempt).
+  Future<void> rejoin({
+    PeerMessage_RoomType roomType = PeerMessage_RoomType.ROOM_TYPE_CONFERENCE,
+    Map<String, server.MediaEvent_Endpoint> endpoints = const {},
+  }) async {
     await authenticate(roomType: roomType);
     await connectedEvent(endpoints: endpoints);
-    await connected;
   }
 
   /// The server accepts the `authRequest` on the current transport.
@@ -126,21 +141,29 @@ class ClientHarness {
     await settle();
   }
 
-  /// The server runs one negotiation cycle: `offerData`, then an answer
-  /// that maps the mids of the client's offer.
+  /// The server runs one negotiation cycle: [offerData], then [answer].
   Future<void> negotiate({int audio = 0, int video = 0}) async {
-    await receive(
-      server.MediaEvent(
-        offerData: server.MediaEvent_OfferData(
-          tracksTypes: server.MediaEvent_OfferData_TrackTypes(
-            audio: audio,
-            video: video,
-          ),
+    await offerData(audio: audio, video: video);
+    await answer();
+  }
+
+  /// The server sends `offerData` asking for [audio] and [video] receive
+  /// transceivers.
+  Future<void> offerData({int audio = 0, int video = 0}) => receive(
+    server.MediaEvent(
+      offerData: server.MediaEvent_OfferData(
+        tracksTypes: server.MediaEvent_OfferData_TrackTypes(
+          audio: audio,
+          video: video,
         ),
       ),
-    );
+    ),
+  );
+
+  /// The server answers the client's last offer, mapping its mids.
+  Future<void> answer() {
     final offer = sentOf(peer.MediaEvent_Content.sdpOffer).last.sdpOffer;
-    await receive(
+    return receive(
       server.MediaEvent(
         sdpAnswer: server.MediaEvent_SdpAnswer(
           sdp: 'v=0\r\ns=fake-answer\r\n',

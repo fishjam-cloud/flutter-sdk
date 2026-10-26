@@ -19,7 +19,7 @@ class _JoinScreenState extends State<JoinScreen> {
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController(text: 'flutter');
   // Optional prefill: flutter run --dart-define-from-file=.env.local
-  // (.env.local holds FISHJAM_ID, PEER_TOKEN, SANDBOX_API_URL).
+  // (copy example/.env.example to .env.local).
   final _fishjamUrl = TextEditingController(
     text: const String.fromEnvironment('FISHJAM_ID'),
   );

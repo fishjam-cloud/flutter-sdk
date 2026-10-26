@@ -78,15 +78,24 @@ final class WebSocketTransport implements SignalingTransport {
   /// Ignored text frames are logged at debug level with [logger].
   WebSocketTransport({
     this.pingInterval = const Duration(seconds: 15),
+    this.connectTimeout = const Duration(seconds: 10),
     FishjamLogger? logger,
   }) : _logger = logger ?? FishjamLogger.disabled();
 
   /// Interval between client pings, and the pong timeout.
   final Duration pingInterval;
 
+  /// Limit for opening the socket: connection, TLS and upgrade together.
+  final Duration connectTimeout;
+
   final FishjamLogger _logger;
 
   WebSocket? _socket;
+
+  /// A dedicated `HttpClient` for this socket. Force-closing it is the only
+  /// way to abort a connect that is still in progress (on timeout or
+  /// [close]).
+  HttpClient? _httpClient;
   final _incoming = StreamController<Uint8List>();
   final _closed = Completer<TransportClosed>();
 
@@ -101,13 +110,20 @@ final class WebSocketTransport implements SignalingTransport {
 
   @override
   Future<void> connect(Uri url) async {
-    if (_socket != null) throw StateError('A transport can be used once');
+    if (_httpClient != null) throw StateError('A transport can be used once');
+    final httpClient = _httpClient = HttpClient();
     try {
-      _socket = await WebSocket.connect(url.toString())
-        ..pingInterval = pingInterval;
+      _socket =
+          await WebSocket.connect(
+              url.toString(),
+              customClient: httpClient,
+            ).timeout(connectTimeout)
+            ..pingInterval = pingInterval;
     } on Object catch (e) {
       _finish(TransportClosed(error: e));
       throw TransportException('Cannot connect to $url', e);
+    } finally {
+      httpClient.close(force: true);
     }
     _socket!.listen(
       (data) {
@@ -136,6 +152,7 @@ final class WebSocketTransport implements SignalingTransport {
   Future<void> close([int code = 1000, String? reason]) async {
     final socket = _socket;
     if (socket == null) {
+      _httpClient?.close(force: true);
       _finish(TransportClosed(code: code, reason: reason));
       return;
     }

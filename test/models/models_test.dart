@@ -171,13 +171,33 @@ void main() {
   });
 
   group('ReconnectConfig (SPEC §6)', () {
-    test('defaults enable three attempts', () {
+    test('defaults enable three attempts that publish the tracks again', () {
       const config = ReconnectConfig();
       expect(config.isEnabled, isTrue);
       expect(config.maxAttempts, 3);
-      expect(config.addTracksOnReconnect, isFalse);
+      expect(config.addTracksOnReconnect, isTrue);
       expect(ReconnectConfig.disabled.isEnabled, isFalse);
     });
+
+    test(
+      'waits at most 60 s for the network; the limit is part of equality',
+      () {
+        expect(
+          const ReconnectConfig().offlineTimeout,
+          const Duration(seconds: 60),
+        );
+        const shorter = ReconnectConfig(offlineTimeout: Duration(seconds: 5));
+        expect(shorter, isNot(const ReconnectConfig()));
+        expect(
+          shorter,
+          const ReconnectConfig(offlineTimeout: Duration(seconds: 5)),
+        );
+        expect(
+          shorter.hashCode,
+          const ReconnectConfig(offlineTimeout: Duration(seconds: 5)).hashCode,
+        );
+      },
+    );
 
     test('delay of attempt n is initialDelay + (n - 1) * delay', () {
       const config = ReconnectConfig(

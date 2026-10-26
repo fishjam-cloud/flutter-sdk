@@ -151,22 +151,33 @@ class FakeTransceiverState {
 
 /// A snapshot view of a transceiver: [mid] is the value at the time the view
 /// was obtained, like `flutter_webrtc`'s objects.
+///
+/// Models how `flutter_webrtc` reaches native transceivers on Android: a view
+/// without a mid holds a native handle that the next native
+/// `getTransceivers()` disposes, and [stop] on a view with a mid makes that
+/// call itself (it looks the transceiver up by mid). [stop] on a disposed
+/// handle throws.
 class FakeRtpTransceiver implements RtcRtpTransceiver {
-  FakeRtpTransceiver._(this.state, this._pc) : mid = state.mid;
+  FakeRtpTransceiver._(this.state, this._pc)
+    : mid = state.mid,
+      _handleGeneration = _pc._handleGeneration;
 
   /// The live state behind this view.
   final FakeTransceiverState state;
   final FakePeerConnection _pc;
+  final int _handleGeneration;
 
   @override
   final String? mid;
 
-  @override
-  Future<TransceiverDirection> getDirection() async => state.direction;
-
-  @override
-  Future<TransceiverDirection?> getCurrentDirection() async =>
-      state.currentDirection;
+  /// Resolves the native transceiver, as `flutter_webrtc` does.
+  void _resolve() {
+    if (mid != null) {
+      _pc._handleGeneration++;
+    } else if (_handleGeneration != _pc._handleGeneration) {
+      throw StateError('RtpTransceiver has been disposed.');
+    }
+  }
 
   @override
   RtcRtpSender get sender => state.sender;
@@ -176,6 +187,7 @@ class FakeRtpTransceiver implements RtcRtpTransceiver {
 
   @override
   Future<void> stop() async {
+    _resolve();
     _pc._record('stopTransceiver', {'mid': state.mid, 'kind': state.kind.name});
     state
       ..direction = TransceiverDirection.stopped
@@ -242,15 +254,17 @@ class FakeRtpSender implements RtcRtpSender {
   Future<List<RtcStats>> getStats() async => stats;
 }
 
-/// A fake receiver; it always has a remote track of its kind.
+/// A fake receiver; it has a remote track of its kind unless created while
+/// [FakePeerConnection.receiversWithoutTrack] was set.
 class FakeRtpReceiver implements RtcRtpReceiver {
-  FakeRtpReceiver._(this.kind) : track = FakeMediaTrack(kind: kind);
+  FakeRtpReceiver._(this.kind, {required bool withTrack})
+    : track = withTrack ? FakeMediaTrack(kind: kind) : null;
 
   @override
   final MediaKind kind;
 
   @override
-  final RtcMediaTrack track;
+  final RtcMediaTrack? track;
 }
 
 /// A fake data channel.
@@ -338,7 +352,14 @@ class FakePeerConnection implements RtcPeerConnection {
   /// Whether [close] was called.
   bool isClosed = false;
 
+  /// Transceivers added while set get a receiver without a track.
+  bool receiversWithoutTrack = false;
+
   final List<FakeTransceiverState> _transceivers = [];
+
+  /// Bumped by every native `getTransceivers()`; views without a mid from an
+  /// earlier generation are disposed (see [FakeRtpTransceiver]).
+  int _handleGeneration = 0;
   final Map<String, Object> _failures = {};
   int _offers = 0;
   int _mids = 0;
@@ -477,16 +498,17 @@ class FakePeerConnection implements RtcPeerConnection {
         track,
         init.sendEncodings.isEmpty ? const [RtpEncoding()] : init.sendEncodings,
       ),
-      receiver: FakeRtpReceiver._(kind),
+      receiver: FakeRtpReceiver._(kind, withTrack: !receiversWithoutTrack),
     );
     _transceivers.add(state);
     return FakeRtpTransceiver._(state, this);
   }
 
   @override
-  Future<List<RtcRtpTransceiver>> getTransceivers() async => [
-    for (final t in _transceivers) FakeRtpTransceiver._(t, this),
-  ];
+  Future<List<RtcRtpTransceiver>> getTransceivers() async {
+    _handleGeneration++;
+    return [for (final t in _transceivers) FakeRtpTransceiver._(t, this)];
+  }
 
   @override
   Future<List<RtcRtpSender>> getSenders() async => [

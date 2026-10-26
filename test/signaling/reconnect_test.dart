@@ -89,8 +89,15 @@ LocalTrackContext _track(String id, {RtcMediaTrack? media}) =>
 
 const _loss = RetryableClose(code: 1011, reason: 'Internal server error');
 
-// maxAttempts 3, initialDelay 500 ms (the defaults), delay 300 ms.
-const _config = ReconnectConfig(delay: Duration(milliseconds: 300));
+// maxAttempts 3, initialDelay 500 ms (the defaults), delay 300 ms, tracks
+// not restored.
+const _config = ReconnectConfig(
+  delay: Duration(milliseconds: 300),
+  addTracksOnReconnect: false,
+);
+
+// The SDK defaults: tracks are restored.
+const _restoring = ReconnectConfig();
 
 void main() {
   late _Host host;
@@ -248,25 +255,19 @@ void main() {
         async.flushMicrotasks();
 
         expect(host.restored, isEmpty);
-        // Every old track id is reported removed, before Reconnected.
-        expect(
-          host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
-          ['t1'],
-        );
-        expect(host.calls.sublist(host.calls.length - 3), [
-          'emit:LocalTrackRemoved',
+        expect(host.calls.sublist(host.calls.length - 2), [
           'releaseQueue',
           'emit:Reconnected',
         ]);
       });
     });
 
-    test('restores live tracks in order, skips ended and muted ones, '
-        'survives failures, then releases the queue and emits '
+    test('restores live tracks together and in order, skips ended and muted '
+        'ones, survives failures, then releases the queue and emits '
         'Reconnected', () {
       fakeAsync((async) {
         final ended = FakeMediaTrack.video()..end();
-        final m = manager(const ReconnectConfig(addTracksOnReconnect: true))
+        final m = manager(_restoring)
           ..onRetryableLoss(
             _loss,
             snapshot(
@@ -288,8 +289,13 @@ void main() {
         unawaited(m.onSessionJoined().then((_) => done = true));
         async.flushMicrotasks();
 
-        // The queue stays held until every restore settled.
-        expect(host.calls.last, 'restoreTrack:cam');
+        // Every restore starts before the first one completes, so they ride
+        // one negotiation cycle; the queue stays held until all settled.
+        expect(host.calls.where((c) => c.startsWith('restoreTrack')), [
+          'restoreTrack:cam',
+          'restoreTrack:broken',
+          'restoreTrack:mic',
+        ]);
         expect(host.count('releaseQueue'), 0);
         expect(m.isReconnecting, isTrue);
         expect(done, isFalse);
@@ -303,20 +309,7 @@ void main() {
           'restoreTrack:broken',
           'restoreTrack:mic',
         ]);
-        expect(host.restored, ['cam', 'mic']);
-        // Every old track id is reported removed, in order, before the
-        // first restore (restored tracks get new ids).
-        expect(
-          host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
-          ['cam', 'ended', 'muted', 'broken', 'mic'],
-        );
-        final firstRestore = host.calls.indexOf('restoreTrack:cam');
-        expect(
-          host.calls
-              .sublist(0, firstRestore)
-              .where((c) => c == 'emit:LocalTrackRemoved'),
-          hasLength(5),
-        );
+        expect(host.restored, unorderedEquals(['cam', 'mic']));
         expect(host.calls.sublist(host.calls.length - 2), [
           'releaseQueue',
           'emit:Reconnected',
@@ -328,7 +321,7 @@ void main() {
     test('a loss during restoration cancels Reconnected and schedules the '
         'next attempt', () {
       fakeAsync((async) {
-        final m = manager(const ReconnectConfig(addTracksOnReconnect: true))
+        final m = manager(_restoring)
           ..onRetryableLoss(
             _loss,
             snapshot(
@@ -347,7 +340,7 @@ void main() {
         host.pendingRestores['cam']!.complete();
         async.flushMicrotasks();
 
-        expect(host.count('restoreTrack:mic'), 0);
+        expect(host.count('restoreTrack:mic'), 1);
         expect(host.count('emit:Reconnected'), 0);
         expect(host.count('releaseQueue'), 0);
         expect(m.isReconnecting, isTrue);
@@ -355,14 +348,9 @@ void main() {
         async.elapse(const Duration(milliseconds: 1000));
         expect(host.count('startSession'), 2);
 
-        // The next attempt restores the snapshot again, but the old ids
-        // were already reported removed.
+        // The next attempt restores the snapshot again.
         unawaited(m.onSessionJoined());
         async.flushMicrotasks();
-        expect(
-          host.events.whereType<LocalTrackRemoved>().map((e) => e.trackId),
-          ['cam', 'mic'],
-        );
         expect(host.count('restoreTrack:cam'), 2);
         expect(host.count('emit:Reconnected'), 1);
       });
@@ -392,7 +380,7 @@ void main() {
 
     test('a terminal close during restoration prevents Reconnected', () {
       fakeAsync((async) {
-        final m = manager(const ReconnectConfig(addTracksOnReconnect: true))
+        final m = manager(_restoring)
           ..onRetryableLoss(
             _loss,
             snapshot(tracks: [_track('cam', media: FakeMediaTrack.video())]),
@@ -533,6 +521,239 @@ void main() {
 
       m.reset();
       expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+    });
+  });
+
+  group('network changes (SPEC §6.1)', () {
+    const offline10s = ReconnectConfig(offlineTimeout: Duration(seconds: 10));
+
+    test('losing the network cancels the scheduled attempt; while offline '
+        'nothing starts and a loss waits instead of using an attempt', () {
+      fakeAsync((async) {
+        final m = manager()
+          ..onRetryableLoss(_loss, snapshot())
+          ..onNetworkLost();
+        async.elapse(const Duration(seconds: 30));
+        expect(host.count('startSession'), 0);
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(seconds: 20));
+        expect(host.count('startSession'), 0);
+        expect(m.isReconnecting, isTrue);
+      });
+    });
+
+    test('a loss while already offline waits for the network', () {
+      fakeAsync((async) {
+        final m = manager()..onNetworkLost();
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(seconds: 30));
+        expect(host.count('startSession'), 0);
+        expect(host.count('emit:ReconnectionStarted'), 1);
+      });
+    });
+
+    test('the network back starts an attempt at once with a fresh budget', () {
+      fakeAsync((async) {
+        final m = manager()
+          ..onRetryableLoss(_loss, snapshot())
+          ..onNetworkLost()
+          ..onNetworkAvailable();
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 1);
+
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(milliseconds: 800));
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(milliseconds: 1100));
+        expect(host.count('startSession'), 3);
+        expect(m.onRetryableLoss(_loss, snapshot()), isFalse);
+      });
+    });
+
+    test('a new network abandons the scheduled attempt and starts one at '
+        'once, with a fresh budget', () {
+      fakeAsync((async) {
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        m.onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 800));
+        m.onRetryableLoss(_loss, snapshot());
+        expect(host.count('startSession'), 2);
+
+        m.onNetworkAvailable();
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 3);
+        async.elapse(const Duration(seconds: 5));
+        expect(host.count('startSession'), 3);
+
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(milliseconds: 800));
+        expect(m.onRetryableLoss(_loss, snapshot()), isTrue);
+        async.elapse(const Duration(milliseconds: 1100));
+        expect(host.count('startSession'), 5);
+        expect(m.onRetryableLoss(_loss, snapshot()), isFalse);
+      });
+    });
+
+    test('a new network abandons the attempt in progress; its late start '
+        'error is ignored', () {
+      fakeAsync((async) {
+        final gate = host.startGate = Completer<void>();
+        host.failingStarts = 1;
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        expect(host.count('startSession'), 1);
+
+        m.onNetworkAvailable();
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 2);
+
+        gate.complete();
+        async.elapse(const Duration(seconds: 5));
+        expect(host.count('startSession'), 2);
+        expect(m.isReconnecting, isTrue);
+      });
+    });
+
+    test('a network change during track restoration starts a new attempt '
+        'and cancels Reconnected', () {
+      fakeAsync((async) {
+        final pending = host.pendingRestores['t1'] = Completer<void>();
+        final m = manager(_restoring)
+          ..onRetryableLoss(
+            _loss,
+            snapshot(tracks: [_track('t1', media: FakeMediaTrack.video())]),
+          );
+        async.elapse(const Duration(milliseconds: 500));
+        unawaited(m.onSessionJoined());
+        async.flushMicrotasks();
+
+        m.onNetworkAvailable();
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 2);
+
+        pending.complete();
+        async.flushMicrotasks();
+        expect(host.events.whereType<Reconnected>(), isEmpty);
+      });
+    });
+
+    test('a session that joins while offline does not complete the '
+        'reconnection; the network back starts a new attempt', () {
+      fakeAsync((async) {
+        final m = manager()..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        m.onNetworkLost();
+        unawaited(m.onSessionJoined());
+        async.flushMicrotasks();
+        expect(host.events.whereType<Reconnected>(), isEmpty);
+        expect(m.isReconnecting, isTrue);
+
+        m.onNetworkAvailable();
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 2);
+      });
+    });
+
+    test('a session that goes offline while its tracks are restored does not '
+        'complete the reconnection; the network back starts a new attempt', () {
+      fakeAsync((async) {
+        final pending = host.pendingRestores['t1'] = Completer<void>();
+        final m = manager(_restoring)
+          ..onRetryableLoss(
+            _loss,
+            snapshot(tracks: [_track('t1', media: FakeMediaTrack.video())]),
+          );
+        async.elapse(const Duration(milliseconds: 500));
+        unawaited(m.onSessionJoined());
+        async.flushMicrotasks();
+
+        m.onNetworkLost();
+        pending.complete();
+        async.flushMicrotasks();
+        expect(host.events.whereType<Reconnected>(), isEmpty);
+        expect(host.count('releaseQueue'), 0);
+        expect(m.isReconnecting, isTrue);
+
+        m.onNetworkAvailable();
+        async.flushMicrotasks();
+        expect(host.count('startSession'), 2);
+      });
+    });
+
+    test('offline for offlineTimeout fails the reconnection', () {
+      fakeAsync((async) {
+        final m = manager(offline10s)
+          ..onRetryableLoss(_loss, snapshot())
+          ..onNetworkLost();
+        async.elapse(const Duration(milliseconds: 9999));
+        expect(m.isReconnecting, isTrue);
+
+        async.elapse(const Duration(milliseconds: 1));
+        expect(m.state, ReconnectState.failed);
+        expect(host.calls.sublist(host.calls.length - 3), [
+          'clearQueue',
+          'emit:ReconnectionFailed',
+          'endSession:${DisconnectReason.reconnectionFailed}',
+        ]);
+      });
+    });
+
+    test('the network back stops the offline timeout', () {
+      fakeAsync((async) {
+        final m = manager(offline10s)
+          ..onRetryableLoss(_loss, snapshot())
+          ..onNetworkLost();
+        async.elapse(const Duration(seconds: 5));
+        m.onNetworkAvailable();
+        async.elapse(const Duration(seconds: 30));
+        expect(host.events.whereType<ReconnectionFailed>(), isEmpty);
+      });
+    });
+
+    test('one reconnection makes at most 3 × maxAttempts attempts', () {
+      fakeAsync((async) {
+        final m = manager(const ReconnectConfig(maxAttempts: 2))
+          ..onRetryableLoss(_loss, snapshot());
+        // A network that keeps changing restarts the budget every time.
+        for (var i = 0; i < 6; i++) {
+          async.elapse(const Duration(seconds: 1));
+          m.onNetworkAvailable();
+          async.flushMicrotasks();
+          m.onRetryableLoss(_loss, snapshot());
+        }
+        expect(host.count('startSession'), 6);
+        expect(m.state, ReconnectState.failed);
+        expect(host.events.whereType<ReconnectionFailed>(), hasLength(1));
+      });
+    });
+
+    test('changes outside a reconnection start nothing', () {
+      fakeAsync((async) {
+        final m = manager()
+          ..onNetworkLost()
+          ..onNetworkAvailable();
+        async.elapse(const Duration(seconds: 5));
+        expect(host.calls, isEmpty);
+
+        m
+          ..onRetryableLoss(_loss, snapshot())
+          ..reset()
+          ..onNetworkAvailable();
+        async.elapse(const Duration(seconds: 5));
+        expect(host.count('startSession'), 0);
+      });
+    });
+
+    test('reset forgets that the device was offline', () {
+      fakeAsync((async) {
+        manager()
+          ..onNetworkLost()
+          ..reset()
+          ..onRetryableLoss(_loss, snapshot());
+        async.elapse(const Duration(milliseconds: 500));
+        expect(host.count('startSession'), 1);
+      });
     });
   });
 }

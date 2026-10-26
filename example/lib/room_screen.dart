@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:fishjam_client/fishjam_client.dart';
 import 'package:flutter/material.dart';
@@ -10,7 +8,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'sandbox.dart';
 
 /// A minimal room: publishes camera and microphone, renders remote video,
-/// mute toggles, a data channel chat and leave.
+/// mute toggles and leave.
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
     super.key,
@@ -32,22 +30,12 @@ class _RemoteVideo {
   final String label;
 }
 
-class _ChatMessage {
-  const _ChatMessage(this.from, this.text);
-
-  final String from;
-  final String text;
-}
-
 class _RoomScreenState extends State<RoomScreen> {
-  // Tracks are published again after a reconnection (with new ids).
-  final _client = FishjamClient(
-    reconnect: const ReconnectConfig(addTracksOnReconnect: true),
-  );
+  // Tracks are published again after a reconnection, with new ids
+  // (`ReconnectConfig.addTracksOnReconnect`, on by default).
+  final _client = FishjamClient();
   final _localRenderer = RTCVideoRenderer();
   final _remote = <String, _RemoteVideo>{};
-  final _messages = <_ChatMessage>[];
-  final _chatInput = TextEditingController();
   final _subscriptions = <StreamSubscription<Object?>>[];
 
   MediaStream? _localStream;
@@ -186,9 +174,7 @@ class _RoomScreenState extends State<RoomScreen> {
 
   Future<void> _start() async {
     await _localRenderer.initialize();
-    _subscriptions
-      ..add(_client.events.listen(_onEvent))
-      ..add(_client.dataStream(reliable: true).listen(_onChat));
+    _subscriptions.add(_client.events.listen(_onEvent));
     try {
       // Asks for camera and microphone permission.
       final stream = await navigator.mediaDevices.getUserMedia({
@@ -223,7 +209,6 @@ class _RoomScreenState extends State<RoomScreen> {
       );
       _setStatus('Connected');
       await Future.wait([_publishCamera(), _publishMicrophone()]);
-      await _client.createDataChannels();
     } on Object catch (e) {
       _setStatus('Error: $e');
     }
@@ -277,8 +262,6 @@ class _RoomScreenState extends State<RoomScreen> {
         _setStatus('Reconnecting…');
       case Reconnected():
         _setStatus('Connected');
-        // Data channels belong to the session: create them again.
-        unawaited(_client.createDataChannels().catchError((Object _) {}));
       case Disconnected(:final reason) when reason != DisconnectReason.left:
         _setStatus('Disconnected: ${reason.name}');
       default:
@@ -311,28 +294,6 @@ class _RoomScreenState extends State<RoomScreen> {
     final previous = _remote[track.trackId];
     setState(() => _remote[track.trackId] = _RemoteVideo(renderer, name));
     await previous?.renderer.dispose();
-  }
-
-  void _onChat(Uint8List data) {
-    try {
-      final json = jsonDecode(utf8.decode(data)) as Map<String, Object?>;
-      setState(
-        () => _messages.add(_ChatMessage('${json['from']}', '${json['text']}')),
-      );
-    } on Object {
-      // Not a chat message.
-    }
-  }
-
-  void _sendChat() {
-    final text = _chatInput.text.trim();
-    if (text.isEmpty || !_client.dataChannelsReady) return;
-    _client.publishData(
-      utf8.encode(jsonEncode({'from': widget.displayName, 'text': text})),
-      reliable: true,
-    );
-    _chatInput.clear();
-    setState(() => _messages.add(_ChatMessage(widget.displayName, text)));
   }
 
   /// Muting replaces the sent media with nothing; unmuting puts it back.
@@ -415,7 +376,6 @@ class _RoomScreenState extends State<RoomScreen> {
       }
       unawaited(stream.dispose());
     }
-    _chatInput.dispose();
     super.dispose();
   }
 
@@ -445,52 +405,12 @@ class _RoomScreenState extends State<RoomScreen> {
                 children: tiles,
               ),
             ),
-            SizedBox(height: 180, child: _chat()),
             _controls(),
           ],
         ),
       ),
     );
   }
-
-  Widget _chat() => Column(
-    children: [
-      Expanded(
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          children: [
-            for (final m in _messages)
-              Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: '${m.from}: ',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    TextSpan(text: m.text),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _chatInput,
-                decoration: const InputDecoration(hintText: 'Message'),
-                onSubmitted: (_) => _sendChat(),
-              ),
-            ),
-            IconButton(onPressed: _sendChat, icon: const Icon(Icons.send)),
-          ],
-        ),
-      ),
-    ],
-  );
 
   Widget _controls() => Padding(
     padding: const EdgeInsets.all(8),
