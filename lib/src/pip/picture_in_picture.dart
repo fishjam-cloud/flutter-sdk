@@ -104,6 +104,15 @@ class PictureInPictureController {
 
   /// Does nothing on Android: the user closes or expands the window.
   Future<void> stop() => _view?._send('stop') ?? Future.value();
+
+  /// Replaces the native picture-in-picture video without rebuilding its
+  /// [PictureInPictureView].
+  ///
+  /// Use this when a remote track is replaced while the Flutter app is in the
+  /// background, such as after that peer reconnects. Pass `null` to show the
+  /// configured fallback. Does nothing if the view is not offered.
+  Future<void> setMediaStream(MediaStream? stream) =>
+      _view?._setMediaStream(stream) ?? Future.value();
 }
 
 /// Renders the first video track of [mediaStream] and, if [pipOptions] is
@@ -264,6 +273,14 @@ class _PictureInPictureViewState extends State<PictureInPictureView> {
   Future<void> _send(String method) {
     if (!_registered) return Future.value();
     return _PipChannel.instance.send(_id, method);
+  }
+
+  Future<void> _setMediaStream(MediaStream? stream) {
+    if (!_registered) return Future.value();
+    final args = Map<String, Object?>.from(_lastUpdate ?? _updateArgs())
+      ..['trackId'] = stream?.getVideoTracks().firstOrNull?.id;
+    _lastUpdate = args;
+    return _PipChannel.instance.update(args);
   }
 
   void _setActive(bool active, {required bool notify}) {

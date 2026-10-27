@@ -121,7 +121,7 @@ final class PictureInPictureManager: NSObject, FlutterStreamHandler {
     )
   }
 
-  private static func flutterRootView() -> UIView? {
+  fileprivate static func flutterRootView() -> UIView? {
     let windows = UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }
       .flatMap(\.windows)
@@ -149,7 +149,7 @@ final class PictureInPictureManager: NSObject, FlutterStreamHandler {
 private final class PipController: NSObject, AVPictureInPictureControllerDelegate {
   private let sampleView = SampleBufferVideoCallView()
   private let callViewController = AVPictureInPictureVideoCallViewController()
-  private let pip: AVPictureInPictureController
+  private var pip: AVPictureInPictureController
   private let onChange: (Bool) -> Void
   private var activeObservation: NSKeyValueObservation?
   private var cameraAccessApplied = false
@@ -157,14 +157,26 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
   private let fallbackView = PipFallbackView()
   /// The window's `activeVideoCallSourceView`. iOS animates picture-in-picture
   /// to and from this view's frame, so the frame is the video tile, not the
-  /// screen. Removing it (in `stop()`) is what lets iOS close the window
-  /// while the app is hidden. The Flutter root retains it until
-  /// [detachSourceView] on teardown.
+  /// screen. `stop()` removes it while the app is hidden, because that is a
+  /// close iOS performs itself (`stopPictureInPicture()` is ignored then).
+  /// The controller created with this view then never reports
+  /// picture-in-picture as possible again, so once the window has closed the
+  /// view is put back and a new controller is created. The Flutter root
+  /// retains it until [detachSourceView] on teardown.
   private let sourceView = UIView()
+  private weak var rootView: UIView?
   /// Safety net for `stop()` in the background: if removing [sourceView]
   /// does not make iOS close the window on its own, force the close once the
   /// app returns (iOS honors `stopPictureInPicture()` again then).
   private var closeOnForeground = false
+  /// [sourceView] was removed to close the window while the app was hidden.
+  private var sourceDetachedForClose = false
+  private var restoreScheduled = false
+  /// After that close, open the window again if a video track is set while
+  /// the app is still hidden and automatic start is on.
+  private var resumeWhenTrackReturns = false
+  private var enteringForeground = false
+  private var tornDown = false
 
   var stopAutomatically = true
 
@@ -174,6 +186,7 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
 
   init(rootView: UIView, onChange: @escaping (Bool) -> Void) {
     self.onChange = onChange
+    self.rootView = rootView
     callViewController.view.backgroundColor = .black
     sourceView.backgroundColor = .clear
     sourceView.isUserInteractionEnabled = false
@@ -181,19 +194,12 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
     // On top of the Flutter view, clear, so iOS treats the tile frame as
     // visible. Touches pass through.
     rootView.addSubview(sourceView)
-    pip = AVPictureInPictureController(
-      contentSource: .init(
-        activeVideoCallSourceView: sourceView,
-        contentViewController: callViewController
-      )
+    pip = Self.makeController(
+      sourceView: sourceView,
+      contentViewController: callViewController
     )
     super.init()
-    pip.canStartPictureInPictureAutomaticallyFromInline = true
-    pip.delegate = self
-    activeObservation = pip.observe(\.isPictureInPictureActive, options: [.initial, .new]) {
-      [weak self] _, _ in
-      self?.updateShouldRender()
-    }
+    configureController(startAutomatically: true)
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(willResignActive),
@@ -206,6 +212,33 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
       name: UIApplication.willEnterForegroundNotification,
       object: nil
     )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(didBecomeActive),
+      name: UIApplication.didBecomeActiveNotification,
+      object: nil
+    )
+  }
+
+  private static func makeController(
+    sourceView: UIView,
+    contentViewController: AVPictureInPictureVideoCallViewController
+  ) -> AVPictureInPictureController {
+    AVPictureInPictureController(
+      contentSource: .init(
+        activeVideoCallSourceView: sourceView,
+        contentViewController: contentViewController
+      )
+    )
+  }
+
+  private func configureController(startAutomatically automatic: Bool) {
+    pip.canStartPictureInPictureAutomaticallyFromInline = automatic
+    pip.delegate = self
+    activeObservation = pip.observe(\.isPictureInPictureActive, options: [.initial, .new]) {
+      [weak self] _, _ in
+      self?.updateShouldRender()
+    }
   }
 
   var isActive: Bool { pip.isPictureInPictureActive }
@@ -223,6 +256,12 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
         if pip.isPictureInPictureActive { showFallback() }
       }
       updateShouldRender()
+      guard videoTrack != nil else { return }
+      if sourceDetachedForClose {
+        scheduleRestoreAfterBackgroundClose()
+      } else {
+        resumeIfStillBackgrounded()
+      }
     }
   }
 
@@ -299,12 +338,83 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
       // iOS ignores an explicit stopPictureInPicture() call while the app is
       // hidden. Removing the source view from the screen is a close the
       // system drives itself, the same way it closes React Native's window
-      // once its RTCView unmounts, so it works while hidden too.
+      // once its RTCView unmounts, so it works while hidden too. The view is
+      // put back in [restoreAfterBackgroundClose] once the window has closed.
       closeOnForeground = true
       videoTrack = nil
+      sourceDetachedForClose = true
       sourceView.removeFromSuperview()
     }
     pip.stopPictureInPicture()
+  }
+
+  /// Puts [sourceView] back on the Flutter root and creates a new controller.
+  /// The one that saw the view leave the hierarchy keeps
+  /// `isPictureInPicturePossible` false, so a reconnect that reuses this
+  /// object (the tile stays mounted) could never open the window again.
+  private func scheduleRestoreAfterBackgroundClose() {
+    guard sourceDetachedForClose, !restoreScheduled, !tornDown, retireCompletion == nil else {
+      return
+    }
+    restoreScheduled = true
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.restoreScheduled = false
+      self.restoreAfterBackgroundClose()
+    }
+  }
+
+  private func restoreAfterBackgroundClose() {
+    guard sourceDetachedForClose, !closeOnForeground, !tornDown, retireCompletion == nil else {
+      return
+    }
+    guard !pip.isPictureInPictureActive else { return }
+    attachSourceView()
+    guard sourceView.window != nil else { return }
+    sourceDetachedForClose = false
+    let automatic = pip.canStartPictureInPictureAutomaticallyFromInline
+    activeObservation = nil
+    pip.delegate = nil
+    pip = Self.makeController(
+      sourceView: sourceView,
+      contentViewController: callViewController
+    )
+    configureController(startAutomatically: automatic)
+    updateShouldRender()
+    resumeWhenTrackReturns = automatic
+      && !enteringForeground
+      && UIApplication.shared.applicationState == .background
+    resumeIfStillBackgrounded()
+    DispatchQueue.main.async { [weak self] in self?.resumeIfStillBackgrounded() }
+  }
+
+  private func attachSourceView() {
+    if rootView?.window == nil {
+      rootView = PictureInPictureManager.flutterRootView()
+    }
+    guard let rootView else { return }
+    if sourceView.superview !== rootView {
+      sourceView.removeFromSuperview()
+      rootView.addSubview(sourceView)
+    }
+    rootView.bringSubviewToFront(sourceView)
+  }
+
+  /// The track often arrives after the window has already closed (the peer
+  /// reconnects while the app is hidden). Automatic start only runs on the
+  /// transition to the background, which already happened, so open it here.
+  private func resumeIfStillBackgrounded() {
+    guard resumeWhenTrackReturns,
+      !enteringForeground,
+      !tornDown,
+      UIApplication.shared.applicationState == .background,
+      startAutomatically,
+      videoTrack != nil,
+      !pip.isPictureInPictureActive,
+      pip.isPictureInPicturePossible
+    else { return }
+    resumeWhenTrackReturns = false
+    pip.startPictureInPicture()
   }
 
   /// Text and colors for [fallbackView]. Applied on every update, so a
@@ -331,6 +441,8 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
   }
 
   private func finishRetirement() {
+    tornDown = true
+    resumeWhenTrackReturns = false
     videoTrack = nil
     if cameraAccessApplied { allowsCameraInBackground = false }
     activeObservation = nil
@@ -342,6 +454,8 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
   }
 
   func invalidate() {
+    tornDown = true
+    resumeWhenTrackReturns = false
     stop()
     videoTrack = nil
     if cameraAccessApplied { allowsCameraInBackground = false }
@@ -366,8 +480,29 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
   }
 
   @objc private func willEnterForeground() {
+    enteringForeground = true
+    // The user is opening the app. Do not pop the window back up on the way in.
+    resumeWhenTrackReturns = false
     guard stopAutomatically || closeOnForeground else { return }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.stop() }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+      guard let self else { return }
+      self.stop()
+      // `didStop` normally puts the source view back. If removing it closed
+      // the window without that callback, do it here once iOS will accept
+      // `stopPictureInPicture()` again. Replacing the controller earlier
+      // drops that callback.
+      guard self.sourceDetachedForClose, !self.pip.isPictureInPictureActive else { return }
+      self.closeOnForeground = false
+      self.onChange(false)
+      self.scheduleRestoreAfterBackgroundClose()
+    }
+  }
+
+  @objc private func didBecomeActive() {
+    enteringForeground = false
+    resumeWhenTrackReturns = false
+    guard sourceDetachedForClose, !pip.isPictureInPictureActive, !closeOnForeground else { return }
+    scheduleRestoreAfterBackgroundClose()
   }
 
   private func fill(_ container: UIView, with view: UIView) {
@@ -434,7 +569,11 @@ private final class PipController: NSObject, AVPictureInPictureControllerDelegat
     fallbackView.removeFromSuperview()
     updateShouldRender()
     onChange(false)
-    if retireCompletion != nil { finishRetirement() }
+    if retireCompletion != nil {
+      finishRetirement()
+    } else {
+      scheduleRestoreAfterBackgroundClose()
+    }
   }
 
   func pictureInPictureController(

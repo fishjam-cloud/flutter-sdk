@@ -28,11 +28,6 @@ class _RemoteVideo {
 
   final MediaStream? stream;
   final String label;
-
-  /// Like the React Native SDK's `RTCPIPView` ref: this tile owns its
-  /// native picture-in-picture controller, independently of every other
-  /// tile.
-  final pip = PictureInPictureController();
 }
 
 /// Keeps the local camera running on iOS while picture-in-picture is up
@@ -50,6 +45,10 @@ class _RoomScreenState extends State<RoomScreen> {
   // (`ReconnectConfig.addTracksOnReconnect`, on by default).
   final _client = FishjamClient();
   final _remote = <String, _RemoteVideo>{};
+  // The picture-in-picture button always starts the first remote tile. Keep
+  // its controller when that peer reconnects: Flutter does not rebuild tiles
+  // while the app is hidden, but the controller can update the native window.
+  final _remotePip = PictureInPictureController();
   final _localPip = PictureInPictureController();
   final _subscriptions = <StreamSubscription<Object?>>[];
 
@@ -260,9 +259,13 @@ class _RoomScreenState extends State<RoomScreen> {
         // tile; ready tracks come back with TrackReady.
         _clearRemoteVideos();
       case TrackRemoved(:final track):
-        // Widgets are not rebuilt while the app is in the background, so the
-        // tile cannot close its window by unmounting: close it now.
-        unawaited(_remote[track.trackId]?.pip.stop());
+        final video = _remote[track.trackId];
+        // Keep the PiP window open with its fallback while this peer
+        // reconnects. Flutter does not rebuild tiles in the background, so
+        // explicitly clear its native track now.
+        if (identical(video, _remote.values.firstOrNull)) {
+          unawaited(_remotePip.setMediaStream(null));
+        }
         setState(() => _remote.remove(track.trackId));
       case LocalTrackAdded(:final track):
         // After a reconnection the restored tracks get new ids.
@@ -296,6 +299,13 @@ class _RoomScreenState extends State<RoomScreen> {
       {'name': final String name} => name,
       _ => track.endpointId,
     };
+    // A reconnect can deliver the new track while this app is backgrounded.
+    // The tile will not rebuild until the app returns, so update the native
+    // window immediately instead of leaving its fallback visible.
+    if (_remotePip.isActive) {
+      await _remotePip.setMediaStream(stream);
+    }
+    if (!mounted) return;
     setState(() => _remote[track.trackId] = _RemoteVideo(stream, name));
   }
 
@@ -392,7 +402,7 @@ class _RoomScreenState extends State<RoomScreen> {
         _VideoTile(
           stream: video.stream,
           label: video.label,
-          pip: video.pip,
+          pip: identical(video, _remote.values.first) ? _remotePip : null,
           pipOptions: identical(video, _remote.values.first)
               ? _pipOptions
               : _noPip,
@@ -435,7 +445,11 @@ class _RoomScreenState extends State<RoomScreen> {
         ),
         IconButton.filledTonal(
           tooltip: 'Picture in picture',
-          onPressed: (_remote.values.firstOrNull?.pip ?? _localPip).start,
+          onPressed:
+              (_remotePip.isActive || _remote.isNotEmpty
+                      ? _remotePip
+                      : _localPip)
+                  .start,
           icon: const Icon(Icons.picture_in_picture_alt),
         ),
         IconButton.filledTonal(

@@ -779,7 +779,9 @@ native plugin over the method channel `io.fishjam.client/pip` and the event chan
     `enabled: false`), including when other views stay offered. Native code releases that view only.
   - `start` / `stop` `{viewId}` come from `PictureInPictureController`. They are sent only for a view that
     is offered; otherwise they do nothing. `stop` does nothing on Android (the user closes or expands the
-    window).
+    window). `PictureInPictureController.setMediaStream(stream)` sends that view an `update` with the
+    stream's first video track id (or `null`), without waiting for a Flutter rebuild. Apps use it when a
+    remote track changes while the app is in the background, such as after that peer reconnects.
   - Events `{viewId, isActive}` update `PictureInPictureController.isActive` and call
     `onPictureInPictureChange` of that view. A view that stops being offered while active becomes inactive
     without a callback.
@@ -790,7 +792,11 @@ native plugin over the method channel `io.fishjam.client/pip` and the event chan
   `AVSampleBufferDisplayLayer` while that view's PiP is active, and also while `startAutomatically` is on,
   because iOS will not start an empty layer when the app backgrounds. The source view is a clear view
   placed on the video tile's rect (`rect` in the `update` message), which is where iOS animates
-  picture-in-picture from and to. `unregister` stops that view's
+  picture-in-picture from and to. `stop` while the app is in the background removes that source view,
+  because iOS ignores `stopPictureInPicture()` until the app is visible; once the window has closed, the
+  view is put back and that view's controller is created again, so a later `start` or automatic start
+  works. If a video track is set on it again while the app is still in the background and
+  `startAutomatically` is on, the window opens again. `unregister` stops that view's
   PiP and removes its controller.
 - Android (API 26+): each offered view keeps its own settings, but the window belongs to the activity
   (`enterPictureInPictureMode`), so one view backs it. That view is the one whose `update` arrived most

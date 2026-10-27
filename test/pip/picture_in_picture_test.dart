@@ -313,6 +313,33 @@ void main() {
       expect(argsOf(callsOf('stop').single), {'viewId': id});
     });
 
+    testWidgets('updates the native track without rebuilding the view', (
+      tester,
+    ) async {
+      final controller = PictureInPictureController();
+      await tester.pumpWidget(
+        _host([
+          PictureInPictureView(
+            mediaStream: _camera,
+            controller: controller,
+            pipOptions: const PictureInPictureOptions(),
+          ),
+        ]),
+      );
+      await tester.pump();
+      final id = argsOf(callsOf('update').last)['viewId'];
+
+      await controller.setMediaStream(
+        _FakeStream('s2', [_FakeTrack('video-2')]),
+      );
+
+      expect(argsOf(callsOf('update').last), containsPair('viewId', id));
+      expect(
+        argsOf(callsOf('update').last),
+        containsPair('trackId', 'video-2'),
+      );
+    });
+
     testWidgets('start does nothing for a view that is not offered', (
       tester,
     ) async {
