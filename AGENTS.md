@@ -65,6 +65,7 @@ Run analyze, format and tests before every commit.
 | `lib/src/stats/` | periodic stats report |
 | `lib/src/livestream/` | WHIP/WHEP over plain HTTP, independent of the room connection |
 | `lib/src/audio_output/`, `lib/src/background/` | Dart side of the SDK's native plugin: audio routing, Android foreground service, iOS CallKit |
+| `lib/src/video/` | `RTCView`, `cameraDevices`, and `selectCamera`. May import `flutter_webrtc` (`test/import_boundary_test.dart`) |
 | `lib/src/models/`, `wire.dart`, `logger.dart`, `version.dart` | public immutable types and shared helpers |
 | `lib/src/fishjam_client.dart`, `lib/src/livestream_api.dart`, `lib/fishjam_client.dart` | the public facade; wiring and type conversion only |
 | `lib/src/connectivity_network_source.dart` | the `NetworkSource` (`signaling/network_source.dart`) on `connectivity_plus`; the only file that imports it |
