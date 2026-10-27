@@ -8,7 +8,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'sandbox.dart';
 
 /// A minimal room: publishes camera and microphone, renders remote video,
-/// mute toggles and leave.
+/// mute toggles, camera switch, picture-in-picture and leave.
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
     super.key,
@@ -59,6 +59,7 @@ class _RoomScreenState extends State<RoomScreen> {
   String? _microphoneTrackId;
   bool _cameraOn = true;
   bool _microphoneOn = true;
+  bool _frontCamera = true;
   String _status = 'Connecting…';
   final _audioOutput = AudioOutputManager.instance;
   final _callKit = CallKit.instance;
@@ -325,6 +326,19 @@ class _RoomScreenState extends State<RoomScreen> {
     );
   }
 
+  /// Same track, so the published camera keeps its id. `true` means the
+  /// front camera is now active.
+  Future<void> _switchCamera() async {
+    final camera = _camera;
+    if (camera == null) return;
+    try {
+      final front = await Helper.switchCamera(camera);
+      if (mounted) setState(() => _frontCamera = front);
+    } on Object catch (e) {
+      _setStatus('Error: $e');
+    }
+  }
+
   Future<void> _toggleMicrophone() async {
     final on = !_microphoneOn;
     setState(() => _microphoneOn = on);
@@ -394,7 +408,7 @@ class _RoomScreenState extends State<RoomScreen> {
       _VideoTile(
         stream: _localStream,
         label: '${widget.displayName} (you)',
-        mirror: true,
+        mirror: _frontCamera,
         pip: _localPip,
         pipOptions: _noPip,
       ),
@@ -442,6 +456,11 @@ class _RoomScreenState extends State<RoomScreen> {
         IconButton.filledTonal(
           onPressed: _toggleCamera,
           icon: Icon(_cameraOn ? Icons.videocam : Icons.videocam_off),
+        ),
+        IconButton.filledTonal(
+          tooltip: 'Switch camera',
+          onPressed: _camera == null ? null : _switchCamera,
+          icon: const Icon(Icons.cameraswitch),
         ),
         IconButton.filledTonal(
           tooltip: 'Picture in picture',
