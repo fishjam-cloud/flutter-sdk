@@ -3,12 +3,11 @@ import 'dart:io';
 
 import 'package:fishjam_client/fishjam_client.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'sandbox.dart';
 
 /// A minimal room: publishes camera and microphone, renders remote video,
-/// mute toggles and leave.
+/// mute toggles, camera switch, picture-in-picture and leave.
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
     super.key,
@@ -53,12 +52,14 @@ class _RoomScreenState extends State<RoomScreen> {
   final _subscriptions = <StreamSubscription<Object?>>[];
 
   MediaStream? _localStream;
+  MediaStream? _cameraStream;
   MediaStreamTrack? _camera;
   MediaStreamTrack? _microphone;
   String? _cameraTrackId;
   String? _microphoneTrackId;
   bool _cameraOn = true;
   bool _microphoneOn = true;
+  bool _frontCamera = true;
   String _status = 'Connecting…';
   final _audioOutput = AudioOutputManager.instance;
   final _callKit = CallKit.instance;
@@ -195,6 +196,7 @@ class _RoomScreenState extends State<RoomScreen> {
         'video': {'facingMode': 'user'},
       });
       _localStream = stream;
+      _cameraStream = stream;
       _camera = stream.getVideoTracks().firstOrNull;
       _microphone = stream.getAudioTracks().firstOrNull;
       if (mounted) setState(() {});
@@ -325,6 +327,35 @@ class _RoomScreenState extends State<RoomScreen> {
     );
   }
 
+  Future<void> _switchCamera() async {
+    final camera = _camera;
+    if (camera == null) return;
+    try {
+      final cameras = await cameraDevices();
+      final currentId = camera.getSettings()['deviceId'];
+      final next = cameras
+          .where((device) => device.deviceId != currentId)
+          .firstOrNull;
+      if (next == null) return;
+      final stream = await selectCamera(next.deviceId, current: _cameraStream);
+      final track = stream.getVideoTracks().firstOrNull;
+      if (track != null && _cameraTrackId != null && track.id != camera.id) {
+        await _client.replaceTrack(_cameraTrackId!, track);
+      }
+      final label = next.label.toLowerCase();
+      final front = label.contains('front');
+      final back = label.contains('back');
+      if (!mounted) return;
+      setState(() {
+        _cameraStream = stream;
+        _camera = track;
+        if (front || back) _frontCamera = front;
+      });
+    } on Object catch (e) {
+      _setStatus('Error: $e');
+    }
+  }
+
   Future<void> _toggleMicrophone() async {
     final on = !_microphoneOn;
     setState(() => _microphoneOn = on);
@@ -385,6 +416,13 @@ class _RoomScreenState extends State<RoomScreen> {
       }
       unawaited(stream.dispose());
     }
+    final cameraStream = _cameraStream;
+    if (cameraStream != null && cameraStream != stream) {
+      for (final track in cameraStream.getTracks()) {
+        unawaited(track.stop());
+      }
+      unawaited(cameraStream.dispose());
+    }
     super.dispose();
   }
 
@@ -392,20 +430,26 @@ class _RoomScreenState extends State<RoomScreen> {
   Widget build(BuildContext context) {
     final tiles = [
       _VideoTile(
-        stream: _localStream,
         label: '${widget.displayName} (you)',
-        mirror: true,
-        pip: _localPip,
-        pipOptions: _noPip,
+        child: RTCView(
+          mediaStream: _cameraStream,
+          mirror: _frontCamera,
+          objectFit: RTCViewObjectFit.cover,
+        ),
       ),
-      for (final video in _remote.values)
+      for (final entry in _remote.entries)
         _VideoTile(
-          stream: video.stream,
-          label: video.label,
-          pip: identical(video, _remote.values.first) ? _remotePip : null,
-          pipOptions: identical(video, _remote.values.first)
-              ? _pipOptions
-              : _noPip,
+          key: ValueKey(entry.key),
+          label: entry.value.label,
+          child: PictureInPictureView(
+            mediaStream: entry.value.stream,
+            controller: identical(entry.value, _remote.values.first)
+                ? _remotePip
+                : null,
+            pipOptions: identical(entry.value, _remote.values.first)
+                ? _pipOptions
+                : _noPip,
+          ),
         ),
     ];
     return Scaffold(
@@ -444,6 +488,11 @@ class _RoomScreenState extends State<RoomScreen> {
           icon: Icon(_cameraOn ? Icons.videocam : Icons.videocam_off),
         ),
         IconButton.filledTonal(
+          tooltip: 'Switch camera',
+          onPressed: _camera == null ? null : _switchCamera,
+          icon: const Icon(Icons.cameraswitch),
+        ),
+        IconButton.filledTonal(
           tooltip: 'Picture in picture',
           onPressed:
               (_remotePip.isActive || _remote.isNotEmpty
@@ -468,19 +517,10 @@ class _RoomScreenState extends State<RoomScreen> {
 }
 
 class _VideoTile extends StatelessWidget {
-  const _VideoTile({
-    required this.label,
-    required this.pipOptions,
-    this.stream,
-    this.pip,
-    this.mirror = false,
-  });
+  const _VideoTile({super.key, required this.child, required this.label});
 
-  final MediaStream? stream;
+  final Widget child;
   final String label;
-  final PictureInPictureController? pip;
-  final PictureInPictureOptions pipOptions;
-  final bool mirror;
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -488,15 +528,7 @@ class _VideoTile extends StatelessWidget {
     child: Stack(
       fit: StackFit.expand,
       children: [
-        ColoredBox(
-          color: Colors.black,
-          child: PictureInPictureView(
-            mediaStream: stream,
-            controller: pip,
-            mirror: mirror,
-            pipOptions: pipOptions,
-          ),
-        ),
+        ColoredBox(color: Colors.black, child: child),
         Positioned(
           left: 8,
           bottom: 8,

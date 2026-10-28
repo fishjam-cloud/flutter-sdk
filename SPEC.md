@@ -743,7 +743,6 @@ when it joins and stops them when it leaves.
 - The app adds `audio` and `voip` to `UIBackgroundModes`. Out of scope: VoIP push, incoming calls, answering,
   ring timeouts.
 
-
 ## 20d. Picture-in-picture
 
 `PictureInPictureView` renders a `MediaStream` and offers its first video track for picture-in-picture (PiP),
@@ -816,6 +815,18 @@ native plugin over the method channel `io.fishjam.client/pip` and the event chan
   `WebRTC` product), and the Android library compiles against `:flutter_webrtc`.
 - When there is no video track, the app and the window both draw `fallbackLabel` on
   `fallbackBackgroundColor` in `fallbackTextColor` (D24).
+
+## 20e. Camera preview
+
+`RTCView` renders a `MediaStream`. `mirror` (default `false`) mirrors that picture. `objectFit` is `contain` (default) or `cover`.
+
+`cameraDevices()` lists cameras as `{deviceId, label}`, the same entries as the React Native SDK's `useCamera().cameraDevices`.
+
+`selectCamera(deviceId, {current})` selects that camera and returns the video stream to show. [current] is the preview already showing. The same `deviceId` returns [current]. When [current] already has a video track, that track is switched in place and [current] is returned. Opening a second camera and stopping the first makes `replaceTrack` fail on Android and iOS. With no video track, `selectCamera` opens [deviceId]. An empty `deviceId` throws `ArgumentError`. This is the React Native SDK's `selectCamera(deviceId)`.
+
+On Android, `mirror` is set on the texture renderer and takes effect on the next drawn frame. `selectCamera` pauses that drawing, switches the camera, then resumes after `RTCView` applies its current `mirror`. The frame already on screen is not flipped. Calls are `setMirror` `{textureId, mirror}` and `setPaused` `{textureId, paused}` on `io.fishjam.client/video_mirror`.
+
+On iOS, `mirror` is a view transform. It updates when the widget rebuilds.
 
 ## 21. Logging
 

@@ -20,6 +20,7 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
     private lateinit var audioOutput: AudioOutputManager
     private var audioEventSink: EventChannel.EventSink? = null
     private lateinit var backgroundChannel: MethodChannel
+    private lateinit var videoChannel: MethodChannel
     private val notificationPermission = NotificationPermission()
     private var activityBinding: ActivityPluginBinding? = null
     private lateinit var pipChannel: MethodChannel
@@ -62,6 +63,8 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
                 pipEventSink = null
             }
         })
+        videoChannel = MethodChannel(binding.binaryMessenger, VIDEO_CHANNEL)
+        videoChannel.setMethodCallHandler(::onVideoMethodCall)
     }
 
     private fun onAudioMethodCall(call: MethodCall, result: Result) {
@@ -98,6 +101,44 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
         }
     }
 
+    private fun onVideoMethodCall(call: MethodCall, result: Result) {
+        when (call.method) {
+            "setMirror" -> {
+                val args = call.arguments as? Map<*, *>
+                val textureId = (args?.get("textureId") as? Number)?.toLong()
+                val mirror = args?.get("mirror") as? Boolean
+                if (textureId == null || mirror == null) {
+                    result.error("invalid", "textureId and mirror are required", null)
+                    return
+                }
+                try {
+                    VideoMirror.setMirror(textureId, mirror)
+                    result.success(null)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not set video mirror", e)
+                    result.error("mirror", e.message, null)
+                }
+            }
+            "setPaused" -> {
+                val args = call.arguments as? Map<*, *>
+                val textureId = (args?.get("textureId") as? Number)?.toLong()
+                val paused = args?.get("paused") as? Boolean
+                if (textureId == null || paused == null) {
+                    result.error("invalid", "textureId and paused are required", null)
+                    return
+                }
+                try {
+                    VideoMirror.setPaused(textureId, paused)
+                    result.success(null)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not pause video", e)
+                    result.error("paused", e.message, null)
+                }
+            }
+            else -> result.notImplemented()
+        }
+    }
+
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         audioChannel.setMethodCallHandler(null)
         audioEvents.setStreamHandler(null)
@@ -107,6 +148,7 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
         pipChannel.setMethodCallHandler(null)
         pipEvents.setStreamHandler(null)
         pipEventSink = null
+        videoChannel.setMethodCallHandler(null)
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
@@ -160,5 +202,6 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
         private const val BACKGROUND_CHANNEL = "io.fishjam.client/background"
         private const val PIP_CHANNEL = "io.fishjam.client/pip"
         private const val PIP_EVENTS_CHANNEL = "io.fishjam.client/pip_events"
+        private const val VIDEO_CHANNEL = "io.fishjam.client/video_mirror"
     }
 }

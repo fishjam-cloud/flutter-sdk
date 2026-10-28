@@ -9,6 +9,7 @@ const _allowed = {
   'lib/src/livestream_api.dart',
   'lib/src/pip/picture_in_picture.dart',
   'lib/src/rtc/flutter_webrtc_adapter.dart',
+  'lib/src/video/rtc_view.dart',
 };
 
 /// Internal modules: pure Dart, tested with fakes. They must not import

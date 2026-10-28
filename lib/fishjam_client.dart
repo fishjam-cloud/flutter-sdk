@@ -1,6 +1,9 @@
 /// Fishjam client SDK for Flutter. Start with `FishjamClient`.
 library;
 
+export 'package:flutter_webrtc/flutter_webrtc.dart'
+    show MediaStream, MediaStreamTrack, navigator;
+
 export 'src/audio_output/audio_output_manager.dart'
     show
         AndroidAudioOutput,
@@ -61,3 +64,5 @@ export 'src/rtc/rtc_adapter.dart' show MediaKind, PeerConnectionState, RtcStats;
 export 'src/signaling/auth.dart' show fishjamUrlFromId;
 export 'src/tracks/bandwidth.dart' show simulcastCapsKbps, singleStreamCapKbps;
 export 'src/version.dart' show packageVersion;
+export 'src/video/rtc_view.dart'
+    show CameraDevice, RTCView, RTCViewObjectFit, cameraDevices, selectCamera;
