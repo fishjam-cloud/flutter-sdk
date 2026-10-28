@@ -4,8 +4,8 @@ description: >-
   audio, video and data from iOS and Android apps.
 version: 0.31.0
 homepage: https://fishjam.io
-repository: https://github.com/fishjam-cloud/flutter-client-sdk
-issue_tracker: https://github.com/fishjam-cloud/flutter-client-sdk/issues
+repository: https://github.com/fishjam-cloud/flutter-sdk
+issue_tracker: https://github.com/fishjam-cloud/flutter-sdk/issues
 
 environment:
   sdk: ^3.13.0
