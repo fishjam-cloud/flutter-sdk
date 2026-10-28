@@ -7,6 +7,7 @@ const _allowed = {
   'lib/fishjam_client.dart',
   'lib/src/fishjam_client.dart',
   'lib/src/livestream_api.dart',
+  'lib/src/pip/picture_in_picture.dart',
   'lib/src/rtc/flutter_webrtc_adapter.dart',
 };
 

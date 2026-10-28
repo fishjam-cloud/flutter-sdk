@@ -16,6 +16,9 @@ dependencies:
   connectivity_plus: ^7.3.2
   flutter:
     sdk: flutter
+  # flutter_webrtc 1.6.2 ships WebRTC 150.7871.01. SwiftPM and CocoaPods follow
+  # this package. Android pins the same version in android/build.gradle.kts;
+  # update that pin when bumping this dependency.
   flutter_webrtc: ^1.6.2
   http: ^1.6.0
   meta: ^1.15.0

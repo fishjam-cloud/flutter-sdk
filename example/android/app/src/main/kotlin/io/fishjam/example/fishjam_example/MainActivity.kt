@@ -1,5 +1,6 @@
 package io.fishjam.example.fishjam_example
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// FlutterFragmentActivity is required for picture-in-picture.
+class MainActivity : FlutterFragmentActivity()

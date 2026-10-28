@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import io.fishjam.client.foregroundservice.ForegroundServiceController
 import io.fishjam.client.foregroundservice.NotificationPermission
+import io.fishjam.client.pip.PictureInPictureManager
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -21,6 +22,12 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
     private lateinit var backgroundChannel: MethodChannel
     private val notificationPermission = NotificationPermission()
     private var activityBinding: ActivityPluginBinding? = null
+    private lateinit var pipChannel: MethodChannel
+    private lateinit var pipEvents: EventChannel
+    private var pipEventSink: EventChannel.EventSink? = null
+    private val pictureInPicture = PictureInPictureManager { viewId, active ->
+        pipEventSink?.success(mapOf("viewId" to viewId, "isActive" to active))
+    }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
@@ -43,6 +50,18 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
         })
         backgroundChannel = MethodChannel(binding.binaryMessenger, BACKGROUND_CHANNEL)
         backgroundChannel.setMethodCallHandler(::onBackgroundMethodCall)
+        pipChannel = MethodChannel(binding.binaryMessenger, PIP_CHANNEL)
+        pipChannel.setMethodCallHandler(pictureInPicture::handle)
+        pipEvents = EventChannel(binding.binaryMessenger, PIP_EVENTS_CHANNEL)
+        pipEvents.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                pipEventSink = events
+            }
+
+            override fun onCancel(arguments: Any?) {
+                pipEventSink = null
+            }
+        })
     }
 
     private fun onAudioMethodCall(call: MethodCall, result: Result) {
@@ -85,12 +104,16 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
         audioEventSink = null
         audioOutput.stopObserving()
         backgroundChannel.setMethodCallHandler(null)
+        pipChannel.setMethodCallHandler(null)
+        pipEvents.setStreamHandler(null)
+        pipEventSink = null
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activityBinding = binding
         notificationPermission.activity = binding.activity
         binding.addRequestPermissionsResultListener(notificationPermission)
+        pictureInPicture.attachActivity(binding.activity)
     }
 
     override fun onDetachedFromActivityForConfigChanges() = onDetachedFromActivity()
@@ -103,6 +126,7 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
         activityBinding = null
         notificationPermission.activity = null
         notificationPermission.flush()
+        pictureInPicture.detachActivity()
     }
 
     /**
@@ -134,5 +158,7 @@ class FishjamClientPlugin : FlutterPlugin, ActivityAware {
         private const val AUDIO_CHANNEL = "io.fishjam.client/audio_output"
         private const val AUDIO_EVENTS_CHANNEL = "io.fishjam.client/audio_output_events"
         private const val BACKGROUND_CHANNEL = "io.fishjam.client/background"
+        private const val PIP_CHANNEL = "io.fishjam.client/pip"
+        private const val PIP_EVENTS_CHANNEL = "io.fishjam.client/pip_events"
     }
 }

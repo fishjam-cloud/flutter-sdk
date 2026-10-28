@@ -52,6 +52,11 @@ export 'src/models/errors.dart'
 export 'src/models/events.dart';
 export 'src/models/simulcast.dart';
 export 'src/models/track.dart';
+export 'src/pip/picture_in_picture.dart'
+    show
+        PictureInPictureController,
+        PictureInPictureOptions,
+        PictureInPictureView;
 export 'src/rtc/rtc_adapter.dart' show MediaKind, PeerConnectionState, RtcStats;
 export 'src/signaling/auth.dart' show fishjamUrlFromId;
 export 'src/tracks/bandwidth.dart' show simulcastCapsKbps, singleStreamCapKbps;

@@ -1,0 +1,43 @@
+PODS:
+  - fishjam_client (0.31.0):
+    - Flutter
+    - flutter_webrtc
+    - WebRTC-SDK
+  - Flutter (1.0.0)
+  - flutter_webrtc (1.6.2):
+    - Flutter
+    - WebRTC-SDK (= 150.7871.01)
+  - integration_test (0.0.1):
+    - Flutter
+  - WebRTC-SDK (150.7871.01)
+
+DEPENDENCIES:
+  - fishjam_client (from `.symlinks/plugins/fishjam_client/ios`)
+  - Flutter (from `Flutter`)
+  - flutter_webrtc (from `.symlinks/plugins/flutter_webrtc/ios`)
+  - integration_test (from `.symlinks/plugins/integration_test/ios`)
+
+SPEC REPOS:
+  trunk:
+    - WebRTC-SDK
+
+EXTERNAL SOURCES:
+  fishjam_client:
+    :path: ".symlinks/plugins/fishjam_client/ios"
+  Flutter:
+    :path: Flutter
+  flutter_webrtc:
+    :path: ".symlinks/plugins/flutter_webrtc/ios"
+  integration_test:
+    :path: ".symlinks/plugins/integration_test/ios"
+
+SPEC CHECKSUMS:
+  fishjam_client: dd0d6cd1c268484ff423fa78c8c061c1e0896e47
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
+  flutter_webrtc: 99283145164f482a16bf7122ef407b5d59d43158
+  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
+  WebRTC-SDK: 7dc931c64c00c735a614382f1a59cf65019c3c17
+
+PODFILE CHECKSUM: 53a6aebc29ccee84c41f92f409fc20cd4ca011f1
+
+COCOAPODS: 1.16.2

@@ -22,4 +22,10 @@ dev_dependencies:
     sdk: flutter
 
 flutter:
+  # This app lives inside the fishjam_client plugin. With Swift Package Manager, the Flutter tool copies
+  # the whole plugin directory into build/ios/SourcePackages because the plugin's Package.swift depends
+  # on flutter_webrtc; that destination is inside the plugin, so the copy recurses. CocoaPods is used
+  # instead until the Flutter tool excludes example/ from that copy (flutter/flutter#188647).
+  config:
+    enable-swift-package-manager: false
   uses-material-design: true

@@ -743,6 +743,80 @@ when it joins and stops them when it leaves.
 - The app adds `audio` and `voip` to `UIBackgroundModes`. Out of scope: VoIP push, incoming calls, answering,
   ring timeouts.
 
+
+## 20d. Picture-in-picture
+
+`PictureInPictureView` renders a `MediaStream` and offers its first video track for picture-in-picture (PiP),
+the floating window the OS shows while the app is in the background. It mirrors the React Native SDK's
+`RTCPIPView`, `RTCPIPOptions`, `onPictureInPictureChange` and `startPIP` / `stopPIP`. It talks to the SDK's
+native plugin over the method channel `io.fishjam.client/pip` and the event channel
+`io.fishjam.client/pip_events`.
+
+- Options (`PictureInPictureOptions`): `enabled` (default `true`), `preferredSize` (logical pixels;
+  default 1920×1080, the React Native native default. Android uses it as the aspect ratio, and uses the
+  view size for a side that is 0. iOS sets `preferredContentSize` to this size), `startAutomatically` (default `true`; iOS:
+  `canStartPictureInPictureAutomaticallyFromInline`. iOS starts the window itself when the app
+  backgrounds; calling `startPictureInPicture()` during that transition cancels the hide and leaves
+  the app on screen. Android: `setAutoEnterEnabled`, API 31+),
+  `stopAutomatically` (default `true`, iOS only: PiP stops 0.5 s after the app returns to the foreground),
+  `allowsCameraInBackground` (default `false`, iOS 16+ only: multitasking camera access on the capture
+  session, for an app that does not start a video CallKit call; a video call already does this, §20c). The
+  flag is applied again just before the app resigns active, because the capture session may not exist when
+  the option is first set. `fallbackLabel` (default `No video`), `fallbackBackgroundColor` (default `0xFF1C2945`) and
+  `fallbackTextColor` (default white) are drawn in the app and in the window when this view's video track is gone.
+  `pipOptions: null` or `enabled: false` means that view is not offered. Any number of
+  views may be offered at once. Dart does not choose among them: each offered view stays registered until
+  that view itself stops being offered.
+- Messages, all keyed by an integer `viewId` unique per mounted view:
+  - `update` `{viewId, trackId, rect, mirror, objectFit, preferredSize, startAutomatically,
+    stopAutomatically, allowsCameraInBackground, fallbackLabel, fallbackBackgroundColor, fallbackTextColor}` is sent for each offered view when it becomes offered or
+    any of these values changes. Offering or updating another view does not send `update` or `unregister`
+    for this one. `trackId` is the `flutter_webrtc` id of the first video track, or `null`. `rect`
+    `{x, y, width, height}` is the view's global rect in logical pixels, or `null` before the first layout.
+    `objectFit` is `cover` or `contain`. `preferredSize` `{width, height}` is always sent (default
+    1920×1080). Native code uses that default when the key is missing.
+  - `unregister` `{viewId}` is sent when that view stops being offered (unmounted, `pipOptions: null`, or
+    `enabled: false`), including when other views stay offered. Native code releases that view only.
+  - `start` / `stop` `{viewId}` come from `PictureInPictureController`. They are sent only for a view that
+    is offered; otherwise they do nothing. `stop` does nothing on Android (the user closes or expands the
+    window). `PictureInPictureController.setMediaStream(stream)` sends that view an `update` with the
+    stream's first video track id (or `null`), without waiting for a Flutter rebuild. Apps use it when a
+    remote track changes while the app is in the background, such as after that peer reconnects.
+  - Events `{viewId, isActive}` update `PictureInPictureController.isActive` and call
+    `onPictureInPictureChange` of that view. A view that stops being offered while active becomes inactive
+    without a callback.
+- Native code resolves `trackId` with `FlutterWebRTCPlugin.sharedSingleton` (`trackForId:peerConnectionId:` on
+  iOS, `getTrackForId` on Android, both with no peer connection id).
+- iOS (15+): one `AVPictureInPictureController` per offered view, each with an
+  `AVPictureInPictureVideoCallViewController`. The SDK does not pick a winner. Frames are drawn into an
+  `AVSampleBufferDisplayLayer` while that view's PiP is active, and also while `startAutomatically` is on,
+  because iOS will not start an empty layer when the app backgrounds. The source view is a clear view
+  placed on the video tile's rect (`rect` in the `update` message), which is where iOS animates
+  picture-in-picture from and to. `stop` while the app is in the background removes that source view,
+  because iOS ignores `stopPictureInPicture()` until the app is visible; once the window has closed, the
+  view is put back and that view's controller is created again, so a later `start` or automatic start
+  works. If a video track is set on it again while the app is still in the background and
+  `startAutomatically` is on, the window opens again. `unregister` stops that view's
+  PiP and removes its controller.
+- Android (API 26+): each offered view keeps its own settings, but the window belongs to the activity
+  (`enterPictureInPictureMode`), so one view backs it. That view is the one whose `update` arrived most
+  recently, or the one `start` was called on. A later `update` from another view replaces it; while the
+  window is already active, the new view is reported active and the previous view is not reported inactive.
+  `unregister` for a view that is not backing the window only drops that view's settings. `unregister` for
+  the view that is backing it turns auto-enter off (API 31+). If the window is already open it stays open
+  and draws the fallback label, because Android ignores a request to close it; otherwise listening stops.
+  It does not hand the window to another offered view. The activity must be a `FlutterFragmentActivity`
+  so it can report picture-in-picture mode changes; otherwise a warning is logged and those changes are
+  missed. On
+  enter the children of `android.R.id.content` are hidden and a `SurfaceViewRenderer` fed by the track fills
+  the window; on exit it is removed and the children are restored.
+- Below iOS 15 and below Android 8, `update` is sent and native code ignores it. On other platforms nothing
+  is sent. `isActive` stays `false`.
+- The plugin links WebRTC for this feature: the pod and the Swift package depend on `flutter_webrtc` (its
+  `WebRTC` product), and the Android library compiles against `:flutter_webrtc`.
+- When there is no video track, the app and the window both draw `fallbackLabel` on
+  `fallbackBackgroundColor` in `fallbackTextColor` (D24).
+
 ## 21. Logging
 
 One SDK logger, created from `FishjamClient(debug: bool)`. Messages are prefixed with `[FISHJAM]` and emitted
@@ -779,6 +853,7 @@ through `dart:developer`'s `log` only when `debug` is true. The SDK never calls 
 | D25 | ICE `disconnected` only renegotiates, however long it lasts | `disconnected` for 3 s is a retryable loss (§8.4) | do not wait for a late `failed` |
 | D26 | opening the socket has no timeout | 10 s (§2.1) | an attempt on a dead network does not hang |
 | D27 | `addTracksOnReconnect` defaults to false: after a reconnection the user publishes nothing until the app adds its tracks again | defaults to true (§6) | a network switch on mobile should not silently turn off the camera and microphone |
+| D28 | (React Native SDK) `pip.fallbackView` is one view drawn in the app and in the PiP window | the app and the window both draw `fallbackLabel`, `fallbackBackgroundColor` and `fallbackTextColor` (§20d) | a Flutter widget cannot be drawn into the native PiP window |
 
 ## 23. Golden fixtures
 

@@ -77,6 +77,20 @@ against the real `FishjamClient` in `test/client/client_fixtures_test.dart`.
 | `ReceiveLivestreamResult.stream` / `stop()` / `getStatistics()` | same names | |
 | `LivestreamError` (string enum, thrown) | `LivestreamException(LivestreamError)` | |
 
+## Picture-in-picture (React Native SDK)
+
+The React Native SDK's picture-in-picture (`@fishjam-cloud/react-native-webrtc`, SPEC §20d):
+
+| React Native SDK | Dart | Notes |
+|---|---|---|
+| `RTCPIPView` | `PictureInPictureView` | owns its renderer; `mediaStream` is a `MediaStream?` |
+| `pip: RTCPIPOptions` | `pipOptions: PictureInPictureOptions?` | same fields and defaults; `null` means not offered |
+| `enabled`, `preferredSize`, `startAutomatically`, `stopAutomatically`, `allowsCameraInBackground` | same names | `preferredSize` is a `Size`, default 1920×1080 |
+| `pip.fallbackView` | `fallbackLabel`, `fallbackBackgroundColor`, `fallbackTextColor` | drawn in the app and in the window (D24) |
+| `onPictureInPictureChange({nativeEvent: {isActive}})` | `onPictureInPictureChange(bool isActive)` | |
+| `startPIP(ref)` / `stopPIP(ref)` | `PictureInPictureController.start()` / `stop()` | the controller is passed to the view |
+| | `PictureInPictureController.isActive` | |
+
 ## Errors, guards and constants
 
 | Web SDK | Dart | Notes |

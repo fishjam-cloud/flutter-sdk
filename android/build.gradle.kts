@@ -50,3 +50,14 @@ kotlin {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
+
+// Provided at runtime by flutter_webrtc (WebRTC) and the Flutter embedding (AndroidX).
+// compileOnly: the app keeps the single copy that flutter_webrtc packages.
+// flutter_webrtc 1.6.2 uses io.github.webrtc-sdk:android:150.7871.01. Gradle
+// requires a version on this line, so update it when bumping flutter_webrtc
+// in pubspec.yaml.
+dependencies {
+    compileOnly(project(":flutter_webrtc"))
+    compileOnly("io.github.webrtc-sdk:android:150.7871.01")
+    compileOnly("androidx.fragment:fragment:1.7.1")
+}

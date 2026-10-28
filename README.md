@@ -181,6 +181,75 @@ For screen sharing, also add `FOREGROUND_SERVICE_MEDIA_PROJECTION`, add `mediaPr
 </array>
 ```
 
+## Picture-in-picture
+
+`PictureInPictureView` renders a stream and offers its first video track for the system picture-in-picture
+window (iOS 15+, Android 8 / API 26+). Every view with `pipOptions` enabled is offered on its own. On iOS each
+offered view has its own controller. On Android the window belongs to the activity, so the view updated
+most recently, or the one `start()` was called on, is the one shown. It matches the React Native SDK's
+`RTCPIPView`: `pipOptions` takes the same options (`enabled`,
+`preferredSize` (default 1920×1080), `startAutomatically`, `stopAutomatically`, `allowsCameraInBackground`), plus `fallbackLabel`,
+`fallbackBackgroundColor` and `fallbackTextColor`, drawn in the app and in the window when the video track is gone, and
+`PictureInPictureController.start()` / `stop()` replace `startPIP(ref)` / `stopPIP(ref)`.
+
+```dart
+final pip = PictureInPictureController();
+
+PictureInPictureView(
+  mediaStream: remoteTrack.stream,
+  controller: pip,
+  pipOptions: const PictureInPictureOptions(
+    startAutomatically: true,
+    fallbackLabel: 'Left the call',
+    fallbackBackgroundColor: Color(0xFF112233),
+    fallbackTextColor: Color(0xFFFFFFFF),
+  ),
+  onPictureInPictureChange: (active) => setState(() => _inPip = active),
+);
+
+await pip.start(); // e.g. from a button; stop() does nothing on Android
+```
+
+When the video track is gone, the app and the window both draw `fallbackLabel` (default `No video`) in
+`fallbackTextColor` on `fallbackBackgroundColor`. `stopAutomatically` applies on iOS only.
+
+A video CallKit call already keeps the camera running in the background (see above).
+`allowsCameraInBackground: true` (iOS 16+, default `false`, as in the React Native SDK) does the same for an
+app that does not start one. On iOS 18 or newer that needs `voip` in `UIBackgroundModes`. Before iOS 18 it
+also needs the `com.apple.developer.avfoundation.multitasking-camera-access` entitlement.
+
+Keep the call alive in the background with `ForegroundService` and `CallKit` (see above), and add:
+
+**iOS** `Info.plist` (the `audio` entry is already required for background calls):
+
+```xml
+<key>UIBackgroundModes</key>
+<array>
+    <string>audio</string>
+</array>
+```
+
+**Android** `AndroidManifest.xml`, on the activity (keep the `configChanges` the Flutter template sets, so
+the activity is not recreated when picture-in-picture starts):
+
+```xml
+<activity
+    android:name=".MainActivity"
+    android:supportsPictureInPicture="true"
+    android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+    ...>
+```
+
+**Android** `MainActivity.kt` must extend `FlutterFragmentActivity`:
+
+```kotlin
+import io.flutter.embedding.android.FlutterFragmentActivity
+
+class MainActivity : FlutterFragmentActivity()
+```
+
+Starting automatically when the app goes to the background works on iOS 15+ and Android 12 (API 31)+.
+
 For prototyping without a backend, the Fishjam dashboard offers a Sandbox API that returns peer tokens. It is
 unauthenticated: never use it in production. The [example app](example/) shows both flows.
 
