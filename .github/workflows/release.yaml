@@ -17,8 +17,6 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      # Configures the pub.dev OIDC token for `pub publish`
-      - uses: dart-lang/setup-dart@v1
       - name: Install toolchain (mise.toml)
         uses: jdx/mise-action@v2
         with:
@@ -26,4 +24,6 @@ jobs:
           cache: true
       - run: mise exec -- flutter pub get
       - run: mise exec -- flutter test
+      # Configures the short-lived pub.dev OIDC token, so it runs right before publishing
+      - uses: dart-lang/setup-dart@v1
       - run: mise exec -- flutter pub publish --force
