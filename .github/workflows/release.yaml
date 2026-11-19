@@ -1,0 +1,29 @@
+name: Publish Package to pub.dev
+
+# pub.dev only accepts automated publishing from tag pushes, not `release` events.
+# Creating a GitHub Release with a new `vX.Y.Z` tag pushes that tag, so the release
+# flow stays the same as in our other SDKs. pub.dev checks the tag against the
+# `v{{version}}` pattern, so the tag must match the version in pubspec.yaml.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  publish-fishjam-client:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain (mise.toml)
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - run: mise exec -- flutter pub get
+      - run: mise exec -- flutter test
+      # Configures the short-lived pub.dev OIDC token, so it runs right before publishing
+      - uses: dart-lang/setup-dart@v1
+      - run: mise exec -- flutter pub publish --force
